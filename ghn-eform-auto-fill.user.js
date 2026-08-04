@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         GHN - Tự điền eForm đền bù
 // @namespace    codex.ghn.internal
-// @version      1.6.0
+// @version      1.6.2
 // @description  Lấy dữ liệu từ ticket/tracuunoibo và tự điền eForm đền bù; không tự gửi phiếu.
 // @homepageURL  https://github.com/MyTran1806/EFORM-AUTO
 // @updateURL    https://raw.githubusercontent.com/MyTran1806/EFORM-AUTO/main/ghn-eform-auto-fill.user.js
