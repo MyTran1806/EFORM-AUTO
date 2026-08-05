@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         GHN - Tự điền eForm đền bù
 // @namespace    codex.ghn.internal
-// @version      1.6.2
+// @version      1.7.2
 // @description  Lấy dữ liệu từ ticket/tracuunoibo và tự điền eForm đền bù; không tự gửi phiếu.
 // @homepageURL  https://github.com/MyTran1806/EFORM-AUTO
 // @updateURL    https://raw.githubusercontent.com/MyTran1806/EFORM-AUTO/main/ghn-eform-auto-fill.user.js
@@ -27,7 +27,8 @@
     csGroup: 'B2C',
     b2cTeam: 'Vùng 3',
     eformType: 'Cập nhật mới',
-    recovery: 'Không thu hồi'
+    recovery: 'Không thu hồi',
+    partner: 'Không'
   };
 
   const clean = (value) => String(value || '').replace(/\s+/g, ' ').trim();
@@ -145,6 +146,91 @@
     return base ? document.getElementById(`${base}_value_0_0`) : null;
   }
 
+  function controlByLabels(labelPatterns) {
+    const labels = [...document.querySelectorAll('label, div, span, p')]
+      .filter((el) => el.children.length === 0 && clean(el.textContent).length < 80)
+      .filter((el) => labelPatterns.some((pattern) => pattern.test(clean(el.textContent))));
+    for (const label of labels) {
+      let container = label.parentElement;
+      for (let level = 0; container && level < 5; level += 1, container = container.parentElement) {
+        const controls = [...container.querySelectorAll('input, textarea')]
+          .filter((el) => el.getClientRects().length > 0 && !el.disabled && !el.id.endsWith('_command'));
+        if (controls.length === 1) return controls[0];
+      }
+    }
+    return null;
+  }
+
+  function firstControl(commands, labelPatterns = []) {
+    for (const command of commands) {
+      let control = valueControl(command);
+      if (!control && command.endsWith('*')) {
+        const prefix = command.slice(0, -1);
+        const dynamicCommand = [...document.querySelectorAll('input[id$="_command"]')]
+          .find((el) => {
+            if (!String(el.value || '').startsWith(prefix)) return false;
+            const dynamicBase = el.id.replace(/_command$/, '');
+            const dynamicControl = document.getElementById(`${dynamicBase}_value_0_0`);
+            return dynamicControl?.getClientRects().length > 0 && !dynamicControl.disabled;
+          });
+        const base = dynamicCommand?.id.replace(/_command$/, '');
+        control = base ? document.getElementById(`${base}_value_0_0`) : null;
+      }
+      if (control?.getClientRects().length && !control.disabled) return control;
+    }
+    return controlByLabels(labelPatterns);
+  }
+
+  function choiceTextFor(commands, labelPatterns) {
+    const control = firstControl(commands, labelPatterns);
+    const select = control?.closest('.ant-select');
+    return clean(select?.querySelector('.ant-select-selection-item')?.textContent || control?.value || '');
+  }
+
+  function compensationContentValues() {
+    const amountControl = firstControl(
+      ['gia_tri_den_bu', 'gia_tri_boi_thuong'],
+      [/giá trị đền bù/i, /gia tri den bu/i]
+    );
+    const contentControl = firstControl(
+      ['noi_dung_den_bu', 'noi_dung_boi_thuong'],
+      [/nội dung đền bù/i, /noi dung den bu/i]
+    );
+    return {
+      amount: clean(amountControl?.value),
+      cause: choiceTextFor(
+        ['nguyen_nhan_*', 'nguyen_nhan_khieu_nai', 'nguyen_nhan_kn', 'nguyen_nhan'],
+        [/nguyên nhân/i, /nguyen nhan/i]
+      ),
+      complaint: choiceTextFor(['loai_khieu_nai'], [/loại khiếu nại/i, /loai khieu nai/i]),
+      recovery: choiceTextFor(['thu_hoi'], [/thu hồi/i, /thu hoi/i]),
+      contentControl
+    };
+  }
+
+  function updateCompensationContent() {
+    const { amount, cause, complaint, recovery, contentControl } = compensationContentValues();
+    if (!amount || !cause || !complaint || !recovery || !contentControl) return false;
+    const amountWithCurrency = /đ$/i.test(amount) ? amount : `${amount}đ`;
+    const content = `${recovery} - ${complaint} - ${cause} - không VAT - ${amountWithCurrency}`;
+    return contentControl.value === content || nativeSet(contentControl, content);
+  }
+
+  function watchManualCompensationFields() {
+    let lastSignature = '';
+    const refresh = () => {
+      const values = compensationContentValues();
+      const signature = [values.amount, values.cause, values.complaint, values.recovery].join('|');
+      if (signature && signature !== lastSignature) {
+        lastSignature = signature;
+        updateCompensationContent();
+      }
+    };
+    document.addEventListener('input', refresh, true);
+    document.addEventListener('change', () => setTimeout(refresh, 150), true);
+    setInterval(refresh, 700);
+  }
+
   async function waitForCommand(command, timeout = 5000) {
     const started = Date.now();
     while (Date.now() - started < timeout) {
@@ -256,9 +342,11 @@
     fillTicketFields();
     const complaintChosen = await choose('loai_khieu_nai', data.complaintReason || '');
     const recoveryChosen = await choose('thu_hoi', FIXED.recovery);
+    const partnerChosen = await choose('doi_tac', FIXED.partner);
     // Các dropdown có thể khiến React dựng lại form; điền lại lần cuối sau khi giao diện ổn định.
     await new Promise((resolve) => setTimeout(resolve, 400));
     fillTicketFields();
+    updateCompensationContent();
     const missing = [
       ['Mã đơn hàng', data.orderCode],
       ['ID khách hàng', data.clientId],
@@ -268,7 +356,7 @@
       ['Giá cước', data.serviceFee],
       ['Mã phiếu FD', data.fdCode]
     ].filter(([, value]) => value === '' || value == null).map(([name]) => name);
-    toast(`Mặc định eForm: ${defaultsOk ? 'OK' : 'cần kiểm tra'}; đã điền ${filled.size} ô${missing.length ? `; thiếu dữ liệu nguồn: ${missing.join(', ')}` : ''}; Loại khiếu nại: ${complaintChosen ? 'OK' : 'cần kiểm tra'}; Thu hồi: ${recoveryChosen ? 'OK' : 'cần kiểm tra'}. Không tự gửi phiếu.`);
+    toast(`Mặc định eForm: ${defaultsOk ? 'OK' : 'cần kiểm tra'}; đã điền ${filled.size} ô${missing.length ? `; thiếu dữ liệu nguồn: ${missing.join(', ')}` : ''}; Loại khiếu nại: ${complaintChosen ? 'OK' : 'cần kiểm tra'}; Thu hồi: ${recoveryChosen ? 'OK' : 'cần kiểm tra'}; Đối tác: ${partnerChosen ? 'OK' : 'cần kiểm tra'}. Nhập Nguyên nhân khiếu nại và Giá trị đền bù để tự ghép Nội dung đền bù. Không tự gửi phiếu.`);
   }
 
   function toast(message) {
@@ -359,6 +447,7 @@
       toast('Bấm “Tự điền eForm” để mở đúng quy trình và tự điền dữ liệu.');
     } else {
       addButton('Tự điền eForm', fillEform);
+      watchManualCompensationFields();
       if (GM_getValue(PENDING_FILL_KEY, false)) {
         GM_setValue(PENDING_FILL_KEY, false);
         fillEform();
