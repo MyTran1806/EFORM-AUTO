@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         GHN - Tự điền eForm đền bù
 // @namespace    codex.ghn.internal
-// @version      1.7.2
+// @version      1.8.3
 // @description  Lấy dữ liệu từ ticket/tracuunoibo và tự điền eForm đền bù; không tự gửi phiếu.
 // @homepageURL  https://github.com/MyTran1806/EFORM-AUTO
 // @updateURL    https://raw.githubusercontent.com/MyTran1806/EFORM-AUTO/main/ghn-eform-auto-fill.user.js
@@ -20,7 +20,8 @@
 
   const STORE_KEY = 'ghn_compensation_draft_v1';
   const PENDING_FILL_KEY = 'ghn_compensation_pending_fill_v1';
-  const EFORM_FLOW_ID = '6859261bb7b131f75c445780';
+  const XU_FLOW_ID = '6859261bb7b131f75c445780';
+  const CASH_FLOW_ID = '6853db464368da4033bc2be6';
   const FIXED = {
     processGroup: 'Phòng Trải Nghiệm Khách Hàng (CX)',
     process: 'XU - ĐỀN BÙ ĐƠN HÀNG THEO CHÍNH SÁCH',
@@ -28,7 +29,8 @@
     b2cTeam: 'Vùng 3',
     eformType: 'Cập nhật mới',
     recovery: 'Không thu hồi',
-    partner: 'Không'
+    partner: 'Không',
+    bankAccount: '1. Tài khoản mặc định'
   };
 
   const clean = (value) => String(value || '').replace(/\s+/g, ' ').trim();
@@ -212,7 +214,9 @@
     const { amount, cause, complaint, recovery, contentControl } = compensationContentValues();
     if (!amount || !cause || !complaint || !recovery || !contentControl) return false;
     const amountWithCurrency = /đ$/i.test(amount) ? amount : `${amount}đ`;
-    const content = `${recovery} - ${complaint} - ${cause} - không VAT - ${amountWithCurrency}`;
+    const currentFlowId = new URLSearchParams(location.search).get('flowId') || '';
+    const vatText = currentFlowId === CASH_FLOW_ID ? 'Có VAT/ 4l cước phí' : 'không VAT';
+    const content = `${recovery} - ${complaint} - ${cause} - ${vatText} - Sản phẩm: - ${amountWithCurrency}`;
     return contentControl.value === content || nativeSet(contentControl, content);
   }
 
@@ -322,6 +326,8 @@
 
   async function fillEform() {
     const data = draft();
+    const currentFlowId = new URLSearchParams(location.search).get('flowId') || '';
+    const isCashFlow = currentFlowId === CASH_FLOW_ID;
     const filled = new Set();
     const set = (command, label, value) => {
       const control = valueControl(command);
@@ -343,6 +349,7 @@
     const complaintChosen = await choose('loai_khieu_nai', data.complaintReason || '');
     const recoveryChosen = await choose('thu_hoi', FIXED.recovery);
     const partnerChosen = await choose('doi_tac', FIXED.partner);
+    const bankChosen = !isCashFlow || await ensureChoice('tai_khoan_ngan_hang_cua_khach_hang', FIXED.bankAccount);
     // Các dropdown có thể khiến React dựng lại form; điền lại lần cuối sau khi giao diện ổn định.
     await new Promise((resolve) => setTimeout(resolve, 400));
     fillTicketFields();
@@ -356,7 +363,7 @@
       ['Giá cước', data.serviceFee],
       ['Mã phiếu FD', data.fdCode]
     ].filter(([, value]) => value === '' || value == null).map(([name]) => name);
-    toast(`Mặc định eForm: ${defaultsOk ? 'OK' : 'cần kiểm tra'}; đã điền ${filled.size} ô${missing.length ? `; thiếu dữ liệu nguồn: ${missing.join(', ')}` : ''}; Loại khiếu nại: ${complaintChosen ? 'OK' : 'cần kiểm tra'}; Thu hồi: ${recoveryChosen ? 'OK' : 'cần kiểm tra'}; Đối tác: ${partnerChosen ? 'OK' : 'cần kiểm tra'}. Nhập Nguyên nhân khiếu nại và Giá trị đền bù để tự ghép Nội dung đền bù. Không tự gửi phiếu.`);
+    toast(`Mặc định eForm ${isCashFlow ? 'TIỀN MẶT' : 'XU'}: ${defaultsOk ? 'OK' : 'cần kiểm tra'}; đã điền ${filled.size} ô${missing.length ? `; thiếu dữ liệu nguồn: ${missing.join(', ')}` : ''}; Loại khiếu nại: ${complaintChosen ? 'OK' : 'cần kiểm tra'}; Thu hồi: ${recoveryChosen ? 'OK' : 'cần kiểm tra'}; Đối tác: ${partnerChosen ? 'OK' : 'cần kiểm tra'}${isCashFlow ? `; Tài khoản ngân hàng: ${bankChosen ? 'OK' : 'cần kiểm tra'}` : ''}. Nhập Nguyên nhân khiếu nại và Giá trị đền bù để tự ghép Nội dung đền bù. Không tự gửi phiếu.`);
   }
 
   function toast(message) {
@@ -373,12 +380,27 @@
     toast.hideTimer = setTimeout(() => { box.style.display = 'none'; }, 6500);
   }
 
-  function addButton(text, onClick) {
+  function addButton(text, onClick, bottomOffset = 12) {
     const button = document.createElement('button');
     button.textContent = text;
     button.type = 'button';
     button.title = 'Bấm để chạy • Giữ và kéo để di chuyển';
-    Object.assign(button.style, { position: 'fixed', right: '12px', bottom: '12px', zIndex: 999999, padding: '8px 11px', border: 0, borderRadius: '7px', color: '#fff', background: '#2563eb', font: '700 13px/1.2 Arial', cursor: 'grab', boxShadow: '0 3px 12px #0003', userSelect: 'none', touchAction: 'none', whiteSpace: 'nowrap' });
+    Object.assign(button.style, {
+      position: 'fixed', right: '12px', bottom: `${bottomOffset}px`, zIndex: 999999,
+      padding: '9px 13px', border: '1px solid #ffffff33', borderRadius: '10px',
+      color: '#fff', background: 'linear-gradient(135deg, #3b82f6, #1d4ed8)',
+      font: '700 13px/1.2 Arial', letterSpacing: '.1px', cursor: 'grab',
+      boxShadow: '0 6px 18px #1d4ed840', userSelect: 'none', touchAction: 'none',
+      whiteSpace: 'nowrap', transition: 'filter .15s ease, box-shadow .15s ease'
+    });
+    button.addEventListener('mouseenter', () => {
+      button.style.filter = 'brightness(1.07)';
+      button.style.boxShadow = '0 8px 22px #1d4ed855';
+    });
+    button.addEventListener('mouseleave', () => {
+      button.style.filter = 'none';
+      button.style.boxShadow = '0 6px 18px #1d4ed840';
+    });
 
     const positionKey = `ghn_button_position_v1_${location.hostname}_${text}`;
     const saved = GM_getValue(positionKey, null);
@@ -429,31 +451,104 @@
     document.body.appendChild(button);
   }
 
+  function addEformModeBar() {
+    const bar = document.createElement('div');
+    Object.assign(bar.style, {
+      position: 'fixed', right: '12px', bottom: '12px', zIndex: 999999,
+      display: 'flex', alignItems: 'stretch', gap: '2px', padding: '4px',
+      border: '1px solid #dbeafe', borderRadius: '10px', background: '#fff',
+      boxShadow: '0 5px 18px #0003', userSelect: 'none', touchAction: 'none'
+    });
+
+    const handle = document.createElement('span');
+    handle.textContent = '↕';
+    handle.title = 'Giữ và kéo để di chuyển';
+    Object.assign(handle.style, {
+      display: 'grid', placeItems: 'center', width: '22px', color: '#64748b',
+      font: '700 14px Arial', cursor: 'grab', borderRadius: '6px'
+    });
+    bar.appendChild(handle);
+
+    const addMode = (label, flowId, background) => {
+      const button = document.createElement('button');
+      button.type = 'button';
+      button.textContent = label;
+      Object.assign(button.style, {
+        border: 0, borderRadius: '7px', padding: '8px 11px', color: '#fff',
+        background, font: '700 13px/1.2 Arial', cursor: 'pointer', whiteSpace: 'nowrap'
+      });
+      button.addEventListener('click', () => {
+        GM_setValue(PENDING_FILL_KEY, flowId);
+        location.href = `${location.origin}/eform/form/create?flowId=${flowId}`;
+      });
+      bar.appendChild(button);
+    };
+
+    addMode('💵 TIỀN MẶT', CASH_FLOW_ID, '#2563eb');
+    addMode('🟠 XU', XU_FLOW_ID, '#1d4ed8');
+
+    const positionKey = 'ghn_eform_mode_bar_position_v1';
+    const saved = GM_getValue(positionKey, null);
+    if (saved && Number.isFinite(saved.left) && Number.isFinite(saved.top)) {
+      Object.assign(bar.style, {
+        left: `${Math.max(0, Math.min(saved.left, innerWidth - 120))}px`,
+        top: `${Math.max(0, Math.min(saved.top, innerHeight - 44))}px`,
+        right: 'auto', bottom: 'auto'
+      });
+    }
+
+    let drag = null;
+    handle.addEventListener('pointerdown', (event) => {
+      const rect = bar.getBoundingClientRect();
+      drag = { id: event.pointerId, x: event.clientX, y: event.clientY, left: rect.left, top: rect.top };
+      handle.setPointerCapture(event.pointerId);
+      handle.style.cursor = 'grabbing';
+    });
+    handle.addEventListener('pointermove', (event) => {
+      if (!drag || event.pointerId !== drag.id) return;
+      const left = Math.max(0, Math.min(drag.left + event.clientX - drag.x, innerWidth - bar.offsetWidth));
+      const top = Math.max(0, Math.min(drag.top + event.clientY - drag.y, innerHeight - bar.offsetHeight));
+      Object.assign(bar.style, { left: `${left}px`, top: `${top}px`, right: 'auto', bottom: 'auto' });
+    });
+    handle.addEventListener('pointerup', (event) => {
+      if (!drag || event.pointerId !== drag.id) return;
+      const rect = bar.getBoundingClientRect();
+      GM_setValue(positionKey, { left: Math.round(rect.left), top: Math.round(rect.top) });
+      drag = null;
+      handle.style.cursor = 'grab';
+    });
+
+    document.body.appendChild(bar);
+  }
+
   if (location.hostname === 'tracuunoibo.ghn.vn') {
-    addButton('Lưu dữ liệu tra cứu', () => captureTrackingData({ wait: false, showFailure: true }));
+    addButton('🔎 Lưu tra cứu', () => captureTrackingData({ wait: false, showFailure: true }));
     captureTrackingData({ wait: true, showFailure: false });
   } else if (location.pathname.includes('/ghn-ticket/')) {
-    addButton('Lưu dữ liệu đền bù', () => {
+    addButton('💾 Lưu ticket', () => {
       const data = ticketData();
       save(data);
       toast(`Đã lưu ticket ${data.fdCode || ''} / đơn ${data.orderCode || ''}. Mở trang tra cứu đơn để lấy tiếp thông tin tiền.`);
     });
   } else if (location.pathname === '/eform/form/create') {
     if (location.pathname === '/eform/form/create' && !new URLSearchParams(location.search).get('flowId')) {
-      addButton('Tự điền eForm', () => {
-        GM_setValue(PENDING_FILL_KEY, true);
-        location.href = `${location.origin}/eform/form/create?flowId=${EFORM_FLOW_ID}`;
-      });
-      toast('Bấm “Tự điền eForm” để mở đúng quy trình và tự điền dữ liệu.');
+      addEformModeBar();
+      toast('Chọn nhanh 💵 TIỀN MẶT hoặc 🟠 XU trên thanh eForm. Dùng ký hiệu ↕ để di chuyển.');
     } else {
-      addButton('Tự điền eForm', fillEform);
+      const currentFlowId = new URLSearchParams(location.search).get('flowId') || '';
+      const isCashFlow = currentFlowId === CASH_FLOW_ID;
+      addButton(`⚡ Tự điền ${isCashFlow ? 'TIỀN MẶT' : 'XU'}`, fillEform);
       watchManualCompensationFields();
-      if (GM_getValue(PENDING_FILL_KEY, false)) {
+      const pendingFlow = GM_getValue(PENDING_FILL_KEY, false);
+      if (pendingFlow === true || pendingFlow === currentFlowId) {
         GM_setValue(PENDING_FILL_KEY, false);
         fillEform();
       } else {
         applyFixedDefaults().then((ok) => {
-          if (ok) toast('Đã chọn sẵn: Phòng Trải Nghiệm Khách Hàng (CX) → XU - ĐỀN BÙ → B2C → Vùng 3 → Cập nhật mới.');
+          if (ok) {
+            if (isCashFlow) ensureChoice('tai_khoan_ngan_hang_cua_khach_hang', FIXED.bankAccount);
+            toast(`Đã chọn sẵn eForm ${isCashFlow ? 'TIỀN MẶT' : 'XU'}: B2C → Vùng 3 → Cập nhật mới${isCashFlow ? ' → 1. Tài khoản mặc định' : ''}.`);
+          }
         });
       }
     }
