@@ -2,8 +2,8 @@
   "schemaVersion": 1,
   "sourceSheetId": "1B7-3E7QbVoDF39KRqzJ0AItzsxEJfE9SuWVjAO80Wxc",
   "sourceGid": "0",
-  "version": "20260811-114002",
-  "publishedAt": "2026-08-11T04:40:02.722Z",
+  "version": "20260811-135649",
+  "publishedAt": "2026-08-11T06:56:49.418Z",
   "items": [
     {
       "sheetRow": 2,
@@ -210,7 +210,7 @@
       "responsibleRule": "Kho hiện tại",
       "incidentLabel": "Khách đã nhận hàng thanh toán COD nhưng không tích giao thành công",
       "incidentType": "khieu_nai_chua_tick_gtc",
-      "template": "SAI TRẠNG THÁI_NN ĐÃ NHẬN HÀNG NHƯNG CHƯA CẬP NHẬT_ #ma_don_hang\n\n ĐH có thông tin khách đã nhận được hàng #ma_don_hang, nhờ kho hỗ trợ kiểm tra và cập nhật lại trạng thái giúp em nha\n Trạng thái hiện tại #trang_thai_van_hanh nhờ kho check lại giúp em:\n - Nếu đã giao: nhờ BC cập nhật GTC, Đóng phiếu thu để chuyển khoản về NG.\n - Nếu chưa giao: nhờ kho cung cấp hình ảnh kiện hàng ở BC giúp CS nha\n\nTrường hợp CS đã gán xử lý về BC mà NVXL/NVPTTT vẫn không cập nhật GTC sẽ bị khóa ID theo quy định OE ban hành\n\n Thanks"
+      "template": "SAI TRẠNG THÁI_NN ĐÃ NHẬN HÀNG NHƯNG CHƯA CẬP NHẬT_ #ma_don_hang\n\n ĐH có thông tin khách đã nhận được hàng #ma_don_hang, nhưng chưa cập nhật trạng thái đúng\n\n - Nếu đã giao: nhờ BC cập nhật GTC, Đóng phiếu thu để chuyển khoản về NG.\n - Nếu chưa giao: nhờ kho cung cấp hình ảnh kiện hàng ở BC giúp CS nha\n\nTrường hợp CS đã gán xử lý về BC mà NVXL/NVPTTT vẫn không cập nhật GTC sẽ bị khóa ID theo quy định OE ban hành\n\n Thanks"
     },
     {
       "sheetRow": 25,
