@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         GHN - eForm đền bù & Task sự cố
 // @namespace    codex.ghn.internal
-// @version      2.2.0
+// @version      2.2.1
 // @description  Lấy dữ liệu ticket/tracuunoibo, tự điền eForm và form Task sự cố GHN; không tự tạo phiếu.
 // @homepageURL  https://github.com/MyTran1806/EFORM-AUTO
 // @updateURL    https://raw.githubusercontent.com/MyTran1806/EFORM-AUTO/main/ghn-eform-auto-fill.user.js
@@ -14,6 +14,7 @@
 // @grant        GM_xmlhttpRequest
 // @grant        unsafeWindow
 // @connect      raw.githubusercontent.com
+// @connect      api.github.com
 // @run-at       document-idle
 // ==/UserScript==
 
@@ -27,6 +28,7 @@
   const TASK_TEMPLATE_CACHE_KEY = 'ghn_task_templates_cache_v1';
   const PENDING_TASK_KEY = 'ghn_pending_task_v1';
   const TASK_TEMPLATE_URL = 'https://raw.githubusercontent.com/MyTran1806/EFORM-AUTO/main/task-templates.json';
+  const TASK_TEMPLATE_COMMIT_API = 'https://api.github.com/repos/MyTran1806/EFORM-AUTO/commits/main';
   const FIXED_DETECTED_HUB = 'GPGPG004 - Customer Services B2C Team 03';
   const XU_FLOW_ID = '6859261bb7b131f75c445780';
   const CASH_FLOW_ID = '6853db464368da4033bc2be6';
@@ -516,7 +518,7 @@
       GM_xmlhttpRequest({
         method: 'GET',
         url,
-        headers: { Accept: 'application/json' },
+        headers: { Accept: 'application/json', 'Cache-Control': 'no-cache', Pragma: 'no-cache' },
         timeout: 15000,
         onload: (response) => {
           try {
@@ -537,13 +539,28 @@
       && payload.items.every((item) => item.reason && item.incidentType && item.incidentLabel && item.template);
   }
 
+  async function latestTaskTemplateUrl() {
+    try {
+      const commit = await gmJson(`${TASK_TEMPLATE_COMMIT_API}?v=${Date.now()}`);
+      if (!commit?.sha) throw new Error('GitHub không trả về commit SHA');
+      return {
+        url: `https://raw.githubusercontent.com/MyTran1806/EFORM-AUTO/${commit.sha}/task-templates.json?v=${Date.now()}`,
+        commitSha: commit.sha
+      };
+    } catch (error) {
+      const separator = TASK_TEMPLATE_URL.includes('?') ? '&' : '?';
+      return { url: `${TASK_TEMPLATE_URL}${separator}v=${Date.now()}`, commitSha: '' };
+    }
+  }
+
   async function loadTaskTemplates(force = false) {
     const cached = GM_getValue(TASK_TEMPLATE_CACHE_KEY, null);
     if (!force && validTaskTemplatePayload(cached)) return cached;
     try {
-      const separator = TASK_TEMPLATE_URL.includes('?') ? '&' : '?';
-      const payload = await gmJson(`${TASK_TEMPLATE_URL}${separator}v=${Date.now()}`);
+      const latest = await latestTaskTemplateUrl();
+      const payload = await gmJson(latest.url);
       if (!validTaskTemplatePayload(payload)) throw new Error('Dữ liệu task không đúng cấu trúc');
+      payload.commitSha = latest.commitSha;
       GM_setValue(TASK_TEMPLATE_CACHE_KEY, payload);
       return payload;
     } catch (error) {
@@ -605,7 +622,7 @@
     title.textContent = 'Tạo task sự cố từ ticket';
     Object.assign(title.style, { margin: '0 0 4px', font: '700 20px Arial' });
     const meta = document.createElement('div');
-    meta.textContent = `Ticket ${sourceData.ticketId || '(không xác định)'} · Đơn ${sourceData.orderCode || '(chưa có mã đơn)'} · dữ liệu ${payload.version || payload.publishedAt || 'hiện tại'}`;
+    meta.textContent = `Ticket ${sourceData.ticketId || '(không xác định)'} · Đơn ${sourceData.orderCode || '(chưa có mã đơn)'} · dữ liệu ${payload.version || payload.publishedAt || 'hiện tại'}${payload.commitSha ? ` · commit ${payload.commitSha.slice(0, 7)}` : ''}`;
     Object.assign(meta.style, { color: '#667085', marginBottom: '14px' });
     const label = document.createElement('label');
     label.textContent = 'Nguyên nhân';
