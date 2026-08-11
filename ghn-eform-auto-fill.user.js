@@ -1,8 +1,8 @@
 // ==UserScript==
-// @name         GHN - Tự điền eForm đền bù
+// @name         GHN - eForm đền bù & Task sự cố
 // @namespace    codex.ghn.internal
-// @version      1.8.3
-// @description  Lấy dữ liệu từ ticket/tracuunoibo và tự điền eForm đền bù; không tự gửi phiếu.
+// @version      2.0.0
+// @description  Lấy dữ liệu ticket/tracuunoibo, tự điền eForm và form Task sự cố GHN; không tự tạo phiếu.
 // @homepageURL  https://github.com/MyTran1806/EFORM-AUTO
 // @updateURL    https://raw.githubusercontent.com/MyTran1806/EFORM-AUTO/main/ghn-eform-auto-fill.user.js
 // @downloadURL  https://raw.githubusercontent.com/MyTran1806/EFORM-AUTO/main/ghn-eform-auto-fill.user.js
@@ -11,7 +11,9 @@
 // @match        https://noibo.ghn.vn/eform/*
 // @grant        GM_getValue
 // @grant        GM_setValue
+// @grant        GM_xmlhttpRequest
 // @grant        unsafeWindow
+// @connect      raw.githubusercontent.com
 // @run-at       document-idle
 // ==/UserScript==
 
@@ -20,6 +22,10 @@
 
   const STORE_KEY = 'ghn_compensation_draft_v1';
   const PENDING_FILL_KEY = 'ghn_compensation_pending_fill_v1';
+  const TASK_TEMPLATE_CACHE_KEY = 'ghn_task_templates_cache_v1';
+  const PENDING_TASK_KEY = 'ghn_pending_task_v1';
+  const TASK_TEMPLATE_URL = 'https://raw.githubusercontent.com/MyTran1806/EFORM-AUTO/main/task-templates.json';
+  const FIXED_DETECTED_HUB = 'GPGPG004 - Customer Services B2C Team 03';
   const XU_FLOW_ID = '6859261bb7b131f75c445780';
   const CASH_FLOW_ID = '6853db464368da4033bc2be6';
   const FIXED = {
@@ -69,6 +75,20 @@
     return clean(value?.getAttribute('title') || value?.textContent || '');
   }
 
+  function valueAfterLabel(labelText) {
+    const label = exactLeaf(labelText);
+    if (!label) return '';
+    if (label.nextElementSibling) return clean(label.nextElementSibling.innerText || label.nextElementSibling.textContent);
+    const siblings = label.parentElement ? [...label.parentElement.children] : [];
+    const index = siblings.indexOf(label);
+    if (index >= 0 && siblings[index + 1]) return clean(siblings[index + 1].innerText || siblings[index + 1].textContent);
+    const parentSiblings = label.parentElement?.parentElement ? [...label.parentElement.parentElement.children] : [];
+    const parentIndex = parentSiblings.indexOf(label.parentElement);
+    return parentIndex >= 0 && parentSiblings[parentIndex + 1]
+      ? clean(parentSiblings[parentIndex + 1].innerText || parentSiblings[parentIndex + 1].textContent)
+      : '';
+  }
+
   function nearbyValue(labelPattern) {
     const nodes = [...document.querySelectorAll('label, dt, th, div, span, p')];
     const label = nodes.find((el) => labelPattern.test(clean(el.textContent)) && clean(el.textContent).length < 90);
@@ -90,7 +110,21 @@
     const clientId = valueBeside('Client ID').match(/\d+/)?.[0] || '';
     const complaintReason = valueBeside('Lý do Khiếu nại');
     const fdCode = heading.match(/\|\s*(\d{8,})\b/)?.[1] || pageText.match(/\b(\d{12})\b/)?.[1] || '';
-    return { orderCode, clientId, complaintReason, fdCode, ticketUrl: location.href };
+    const ownerText = valueBeside('Nhân viên phụ trách') || nearbyValue(/Nhân viên phụ trách/i)
+      || valueBeside('Người xử lý') || nearbyValue(/Người xử lý/i);
+    const ownerMatch = ownerText.match(/(?:^|\s)(\d{4,})\s*[-–]?\s*(.+)$/);
+    const ownerFallback = pageText.match(/Nhân viên phụ trách\s+(?:[A-Z0-9_]+\s+)?(\d{4,})\s+(.+?)\s+Loại\b/i);
+    const ticketId = location.pathname.match(/\/cs\/detail\/(\d+)/)?.[1] || '';
+    return {
+      orderCode,
+      clientId,
+      complaintReason,
+      fdCode,
+      ticketId,
+      ticketOwnerId: ownerMatch?.[1] || ownerFallback?.[1] || '',
+      ticketOwnerName: clean(ownerMatch?.[2] || ownerFallback?.[2] || ''),
+      ticketUrl: location.href
+    };
   }
 
   function trackingData() {
@@ -102,6 +136,9 @@
       cod: money(valueBeside('Tiền thu hộ (COD):')),
       declaredValue: money(valueBeside('Giá trị đơn hàng:')),
       serviceFee: money(valueBeside('Tổng phí dịch vụ:')),
+      pickupHub: valueAfterLabel('Kho lấy') || valueBeside('Kho lấy:') || valueBeside('Bưu cục lấy:') || nearbyValue(/^(Kho|Bưu cục) lấy/i),
+      deliveryHub: valueAfterLabel('Kho giao') || valueBeside('Kho giao:') || valueBeside('Bưu cục giao:') || nearbyValue(/^(Kho|Bưu cục) giao/i),
+      currentHub: valueAfterLabel('Kho hiện tại') || valueBeside('Kho hiện tại:') || valueBeside('Bưu cục hiện tại:') || nearbyValue(/^(Kho|Bưu cục) hiện tại/i),
       trackingUrl: location.href
     };
   }
@@ -344,6 +381,13 @@
       set('khai_gia', 'Khai giá', data.declaredValue);
       set('gia_cuoc_don_hang', 'Giá cước đơn hàng', data.serviceFee);
       set('ma_phieu_fd', 'Mã phiếu FD', data.fdCode);
+      const taskLinkControl = firstControl(
+        ['link_fd_hrw_task', 'link_task', 'link_fd_hrw'],
+        [/link\s*fd\s*\/\s*hrw\s*\/\s*task/i, /link\s*task/i]
+      );
+      if (taskLinkControl?.getClientRects().length && nativeSet(taskLinkControl, data.taskUrl || '')) {
+        filled.add('Link FD/HRW/TASK');
+      }
     };
     fillTicketFields();
     const complaintChosen = await choose('loai_khieu_nai', data.complaintReason || '');
@@ -364,6 +408,360 @@
       ['Mã phiếu FD', data.fdCode]
     ].filter(([, value]) => value === '' || value == null).map(([name]) => name);
     toast(`Mặc định eForm ${isCashFlow ? 'TIỀN MẶT' : 'XU'}: ${defaultsOk ? 'OK' : 'cần kiểm tra'}; đã điền ${filled.size} ô${missing.length ? `; thiếu dữ liệu nguồn: ${missing.join(', ')}` : ''}; Loại khiếu nại: ${complaintChosen ? 'OK' : 'cần kiểm tra'}; Thu hồi: ${recoveryChosen ? 'OK' : 'cần kiểm tra'}; Đối tác: ${partnerChosen ? 'OK' : 'cần kiểm tra'}${isCashFlow ? `; Tài khoản ngân hàng: ${bankChosen ? 'OK' : 'cần kiểm tra'}` : ''}. Nhập Nguyên nhân khiếu nại và Giá trị đền bù để tự ghép Nội dung đền bù. Không tự gửi phiếu.`);
+  }
+
+  function gmJson(url) {
+    return new Promise((resolve, reject) => {
+      GM_xmlhttpRequest({
+        method: 'GET',
+        url,
+        headers: { Accept: 'application/json' },
+        timeout: 15000,
+        onload: (response) => {
+          try {
+            if (response.status < 200 || response.status >= 300) throw new Error(`HTTP ${response.status}`);
+            resolve(JSON.parse(response.responseText));
+          } catch (error) {
+            reject(error);
+          }
+        },
+        onerror: () => reject(new Error('Không kết nối được GitHub')),
+        ontimeout: () => reject(new Error('GitHub phản hồi quá thời gian'))
+      });
+    });
+  }
+
+  function validTaskTemplatePayload(payload) {
+    return payload && payload.schemaVersion === 1 && Array.isArray(payload.items)
+      && payload.items.every((item) => item.reason && item.incidentType && item.incidentLabel && item.template);
+  }
+
+  async function loadTaskTemplates(force = false) {
+    const cached = GM_getValue(TASK_TEMPLATE_CACHE_KEY, null);
+    if (!force && validTaskTemplatePayload(cached)) return cached;
+    try {
+      const separator = TASK_TEMPLATE_URL.includes('?') ? '&' : '?';
+      const payload = await gmJson(`${TASK_TEMPLATE_URL}${separator}v=${Date.now()}`);
+      if (!validTaskTemplatePayload(payload)) throw new Error('Dữ liệu task không đúng cấu trúc');
+      GM_setValue(TASK_TEMPLATE_CACHE_KEY, payload);
+      return payload;
+    } catch (error) {
+      if (validTaskTemplatePayload(cached)) {
+        toast(`Không tải được dữ liệu mới (${error.message}); đang dùng bản đã lưu gần nhất.`);
+        return cached;
+      }
+      throw error;
+    }
+  }
+
+  function replaceTaskTemplate(template, data) {
+    return String(template || '')
+      .replace(/#ma_don_hang/gi, data.orderCode || '')
+      .replace(/#ticket_id/gi, data.ticketId || '')
+      .replace(/#ten_nhan_vien/gi, data.ticketOwnerName || '')
+      .replace(/#ma_nhan_vien/gi, data.ticketOwnerId || '');
+  }
+
+  function taskHubForRule(rule, data) {
+    const normalized = normalizeChoice(rule || '');
+    if (!normalized) return '';
+    if (normalized.includes('kho giao')) return data.deliveryHub || '';
+    if (normalized.includes('kho lay')) return data.pickupHub || '';
+    if (normalized.includes('kho hien tai')) return data.currentHub || '';
+    return '';
+  }
+
+  function closeTaskPicker() {
+    document.getElementById('ghn-task-picker-overlay')?.remove();
+  }
+
+  function showTaskPicker(payload, sourceData) {
+    closeTaskPicker();
+    const overlay = document.createElement('div');
+    overlay.id = 'ghn-task-picker-overlay';
+    Object.assign(overlay.style, {
+      position: 'fixed', inset: '0', zIndex: 1000000, display: 'grid', placeItems: 'center',
+      padding: '20px', background: '#0008', font: '14px/1.45 Arial'
+    });
+    const panel = document.createElement('div');
+    Object.assign(panel.style, {
+      width: 'min(720px, 96vw)', maxHeight: '88vh', overflow: 'auto', padding: '20px',
+      borderRadius: '12px', background: '#fff', color: '#202124', boxShadow: '0 20px 55px #0006'
+    });
+    const title = document.createElement('h2');
+    title.textContent = 'Tạo task sự cố từ ticket';
+    Object.assign(title.style, { margin: '0 0 4px', font: '700 20px Arial' });
+    const meta = document.createElement('div');
+    meta.textContent = `Ticket ${sourceData.ticketId || '(không xác định)'} · Đơn ${sourceData.orderCode || '(chưa có mã đơn)'} · dữ liệu ${payload.version || payload.publishedAt || 'hiện tại'}`;
+    Object.assign(meta.style, { color: '#667085', marginBottom: '14px' });
+    const label = document.createElement('label');
+    label.textContent = 'Nguyên nhân';
+    Object.assign(label.style, { display: 'block', fontWeight: '700', marginBottom: '6px' });
+    const select = document.createElement('select');
+    Object.assign(select.style, { width: '100%', padding: '10px', border: '1px solid #cfd4dc', borderRadius: '8px', background: '#fff', color: '#202124' });
+    const sortedItems = [...payload.items].sort((a, b) => `${a.complaintType}|${a.reason}`.localeCompare(`${b.complaintType}|${b.reason}`, 'vi'));
+    for (const [index, item] of sortedItems.entries()) {
+      const option = document.createElement('option');
+      option.value = String(index);
+      option.textContent = `${item.complaintType ? `${item.complaintType} — ` : ''}${item.reason}`;
+      select.appendChild(option);
+    }
+    const summary = document.createElement('div');
+    Object.assign(summary.style, { marginTop: '12px', padding: '12px', borderRadius: '8px', background: '#f5f7fa' });
+    const typeLine = document.createElement('div');
+    const hubLine = document.createElement('div');
+    const preview = document.createElement('textarea');
+    preview.readOnly = true;
+    Object.assign(preview.style, { width: '100%', minHeight: '150px', boxSizing: 'border-box', marginTop: '10px', padding: '10px', border: '1px solid #d8dde5', borderRadius: '8px', resize: 'vertical', background: '#fff', color: '#202124' });
+    summary.append(typeLine, hubLine, preview);
+    const actions = document.createElement('div');
+    Object.assign(actions.style, { display: 'flex', justifyContent: 'space-between', gap: '10px', marginTop: '14px', flexWrap: 'wrap' });
+    const refresh = document.createElement('button');
+    refresh.type = 'button';
+    refresh.textContent = 'Đồng bộ lại dữ liệu GitHub';
+    const cancel = document.createElement('button');
+    cancel.type = 'button';
+    cancel.textContent = 'Hủy';
+    const proceed = document.createElement('button');
+    proceed.type = 'button';
+    proceed.textContent = 'Mở form task GHN';
+    for (const button of [refresh, cancel, proceed]) {
+      Object.assign(button.style, { padding: '9px 13px', borderRadius: '8px', border: '1px solid #d0d5dd', background: '#fff', color: '#202124', cursor: 'pointer', fontWeight: '700' });
+    }
+    Object.assign(proceed.style, { marginLeft: 'auto', background: '#ed5b22', borderColor: '#ed5b22', color: '#fff' });
+    actions.append(refresh, cancel, proceed);
+    panel.append(title, meta, label, select, summary, actions);
+    overlay.appendChild(panel);
+    document.body.appendChild(overlay);
+
+    const render = () => {
+      const item = sortedItems[Number(select.value) || 0];
+      typeLine.textContent = `Loại sự cố: ${item.incidentLabel}`;
+      hubLine.textContent = item.responsibleRule ? `Quy tắc bộ phận: ${item.responsibleRule}` : 'Form này không có Bộ phận chịu trách nhiệm';
+      preview.value = replaceTaskTemplate(item.template, sourceData);
+    };
+    select.addEventListener('change', render);
+    cancel.addEventListener('click', closeTaskPicker);
+    overlay.addEventListener('click', (event) => { if (event.target === overlay) closeTaskPicker(); });
+    refresh.addEventListener('click', async () => {
+      refresh.disabled = true;
+      try {
+        const fresh = await loadTaskTemplates(true);
+        closeTaskPicker();
+        showTaskPicker(fresh, sourceData);
+        toast(`Đã đồng bộ ${fresh.items.length} nguyên nhân từ GitHub.`);
+      } catch (error) {
+        toast(`Không đồng bộ được dữ liệu task: ${error.message}`);
+      } finally {
+        refresh.disabled = false;
+      }
+    });
+    proceed.addEventListener('click', () => {
+      const item = sortedItems[Number(select.value) || 0];
+      const pending = {
+        ...sourceData,
+        templateItem: item,
+        content: replaceTaskTemplate(item.template, sourceData),
+        responsibleHub: taskHubForRule(item.responsibleRule, draft()),
+        preparedAt: new Date().toISOString()
+      };
+      GM_setValue(PENDING_TASK_KEY, pending);
+      save(sourceData);
+      location.href = `${location.origin}/ghn-ticket/create-ticket?type=${encodeURIComponent(item.incidentType)}`;
+    });
+    render();
+  }
+
+  async function openTaskPicker() {
+    const sourceData = ticketData();
+    if (!sourceData.orderCode) {
+      toast('Không lấy được mã đơn trên ticket. Vui lòng kiểm tra ticket trước khi tạo task.');
+      return;
+    }
+    save(sourceData);
+    try {
+      const payload = await loadTaskTemplates(true);
+      showTaskPicker(payload, sourceData);
+    } catch (error) {
+      toast(`Không tải được danh sách nguyên nhân: ${error.message}`);
+    }
+  }
+
+  function fieldContainer(labelPattern) {
+    const label = [...document.querySelectorAll('label, div, span, p')]
+      .filter((el) => el.children.length === 0 && clean(el.textContent).length < 100)
+      .find((el) => labelPattern.test(clean(el.textContent)));
+    if (!label) return null;
+    let container = label.parentElement;
+    for (let level = 0; container && level < 6; level += 1, container = container.parentElement) {
+      if (container.querySelector('input, textarea, [role="combobox"], .ant-select')) return container;
+    }
+    return null;
+  }
+
+  function taskTextControl(labelPattern, placeholderPattern) {
+    const container = fieldContainer(labelPattern);
+    const inContainer = container && [...container.querySelectorAll('input, textarea')]
+      .find((el) => el.getClientRects().length > 0 && !el.disabled);
+    if (inContainer) return inContainer;
+    return [...document.querySelectorAll('input, textarea')]
+      .find((el) => el.getClientRects().length > 0 && placeholderPattern.test(el.placeholder || '')) || null;
+  }
+
+  async function chooseTaskCombobox(labelPattern, target) {
+    if (!target) return false;
+    const container = fieldContainer(labelPattern);
+    const select = container?.querySelector('.ant-select') || container?.querySelector('[role="combobox"]')?.closest('.ant-select');
+    const input = select?.querySelector('input[role="combobox"], input');
+    mouseActivate(select?.querySelector('.ant-select-selector') || select || input);
+    await new Promise((resolve) => setTimeout(resolve, 180));
+    if (input) nativeSet(input, target);
+    const targetCode = clean(target).match(/[A-Z0-9]{4,}/i)?.[0] || '';
+    const started = Date.now();
+    while (Date.now() - started < 4500) {
+      const options = visibleOptions();
+      const option = options.find((node) => sameChoice(node.textContent, target)
+        || (targetCode && clean(node.textContent).toLowerCase().includes(targetCode.toLowerCase()))
+        || clean(node.textContent).toLowerCase().includes(clean(target).toLowerCase()));
+      if (option) {
+        mouseActivate(option, false);
+        await new Promise((resolve) => setTimeout(resolve, 250));
+        return true;
+      }
+      await new Promise((resolve) => setTimeout(resolve, 120));
+    }
+    pressSyntheticKey(input, 'Escape');
+    return false;
+  }
+
+  async function fillTaskForm() {
+    const pending = GM_getValue(PENDING_TASK_KEY, null);
+    if (!pending?.templateItem) return;
+    const pageType = new URLSearchParams(location.search).get('type') || '';
+    if (pageType !== pending.templateItem.incidentType) return;
+    const manualRadio = [...document.querySelectorAll('input[type="radio"]')]
+      .find((radio) => clean(radio.parentElement?.innerText).includes('Tạo thủ công'));
+    if (manualRadio && !manualRadio.checked) {
+      mouseActivate(manualRadio);
+      await new Promise((resolve) => setTimeout(resolve, 350));
+    } else if (!manualRadio) {
+      const manualText = exactLeaf('Tạo thủ công');
+      if (manualText) {
+        mouseActivate(manualText);
+        await new Promise((resolve) => setTimeout(resolve, 350));
+      }
+    }
+
+    const detectedOk = await chooseTaskCombobox(/Bộ phận phát hiện/i, FIXED_DETECTED_HUB);
+    let responsibleOk = true;
+    if (pending.templateItem.responsibleRule) {
+      const hub = pending.responsibleHub || taskHubForRule(pending.templateItem.responsibleRule, draft());
+      responsibleOk = hub ? await chooseTaskCombobox(/Bộ phận chịu trách nhiệm/i, hub) : false;
+    }
+
+    const orderControl = taskTextControl(/(Mã đơn hàng|Danh sách đơn hàng)/i, /(Nhập mã đơn hàng|Ví dụ:)/i);
+    const orderOk = nativeSet(orderControl, pending.orderCode);
+    await new Promise((resolve) => setTimeout(resolve, 150));
+    const addOrderButton = [...document.querySelectorAll('button')]
+      .find((button) => clean(button.textContent).includes('Thêm mã đơn') && !button.disabled);
+    if (addOrderButton) {
+      mouseActivate(addOrderButton);
+      await new Promise((resolve) => setTimeout(resolve, 250));
+    }
+
+    const amountControl = taskTextControl(/Nhập số tiền/i, /Nhập số tiền/i);
+    const amountValue = pending.templateItem.incidentType === 'qua_han_toan_trinh'
+      ? (draft().declaredValue || '')
+      : (draft().declaredValue || draft().serviceFee || '');
+    if (amountControl && amountValue) nativeSet(amountControl, amountValue);
+    const contentControl = taskTextControl(/Nội dung yêu cầu/i, /Nhập nội dung yêu cầu/i);
+    const contentOk = nativeSet(contentControl, pending.content);
+
+    const updateSubmitted = () => {
+      const current = GM_getValue(PENDING_TASK_KEY, pending);
+      GM_setValue(PENDING_TASK_KEY, { ...current, submittedAt: new Date().toISOString() });
+    };
+    [...document.querySelectorAll('button')]
+      .filter((button) => clean(button.textContent) === 'Tạo phiếu')
+      .forEach((button) => button.addEventListener('click', updateSubmitted, { once: true }));
+    toast(`Đã điền form task: mã đơn ${orderOk ? 'OK' : 'cần kiểm tra'}; bộ phận phát hiện ${detectedOk ? 'OK' : 'cần kiểm tra'}; bộ phận chịu trách nhiệm ${responsibleOk ? 'OK' : 'cần kiểm tra'}; nội dung ${contentOk ? 'OK' : 'cần kiểm tra'}. Hãy kiểm tra và tự bấm Tạo phiếu.`);
+  }
+
+  async function chooseOwnerInDialog(ownerId, ownerName) {
+    const changeButton = [...document.querySelectorAll('button')]
+      .find((button) => clean(button.textContent) === 'Đổi người xử lý');
+    if (!changeButton) return false;
+    mouseActivate(changeButton);
+    await new Promise((resolve) => setTimeout(resolve, 250));
+    const dialog = document.querySelector('[role="dialog"]');
+    const input = dialog?.querySelector('input[role="combobox"], input');
+    if (!input) return false;
+    mouseActivate(input);
+    nativeSet(input, ownerId || ownerName);
+    const started = Date.now();
+    while (Date.now() - started < 5000) {
+      const option = visibleOptions().find((node) => clean(node.textContent).includes(ownerId)
+        || (ownerName && clean(node.textContent).includes(ownerName)));
+      if (option) {
+        mouseActivate(option, false);
+        await new Promise((resolve) => setTimeout(resolve, 180));
+        const confirm = [...dialog.querySelectorAll('button')]
+          .find((button) => clean(button.textContent) === 'Xác nhận đổi' && !button.disabled);
+        if (!confirm) return false;
+        mouseActivate(confirm);
+        return true;
+      }
+      await new Promise((resolve) => setTimeout(resolve, 120));
+    }
+    return false;
+  }
+
+  async function handleCreatedTaskDetail() {
+    const pending = GM_getValue(PENDING_TASK_KEY, null);
+    if (!pending?.submittedAt) return;
+    const submittedAt = new Date(pending.submittedAt).getTime();
+    if (!Number.isFinite(submittedAt) || Date.now() - submittedAt > 60 * 60 * 1000) return;
+    const taskId = location.pathname.match(/\/ghn-ticket\/detail\/(\d+)/)?.[1] || '';
+    if (!taskId) return;
+    const taskUrl = location.href;
+    save({ taskId, taskUrl });
+    let ownerAssigned = false;
+    if (pending.ticketOwnerId || pending.ticketOwnerName) {
+      await new Promise((resolve) => setTimeout(resolve, 700));
+      ownerAssigned = await chooseOwnerInDialog(pending.ticketOwnerId, pending.ticketOwnerName);
+    }
+    GM_setValue(PENDING_TASK_KEY, { ...pending, taskId, taskUrl, ownerAssigned, completedAt: new Date().toISOString() });
+    toast(`Đã lưu link task cho eForm${ownerAssigned ? ' và đã gán người phụ trách ticket làm người xử lý' : '; chưa tự gán được người xử lý, vui lòng kiểm tra thủ công'}.`);
+  }
+
+  async function writeTaskLinkToSourceTicket() {
+    const data = draft();
+    if (!data.taskUrl) return toast('Chưa có link task trong dữ liệu nháp.');
+    const currentTicketId = location.pathname.match(/\/cs\/detail\/(\d+)/)?.[1] || '';
+    if (data.ticketId && currentTicketId && data.ticketId !== currentTicketId) {
+      return toast(`Link task đang thuộc ticket ${data.ticketId}, không phải ticket ${currentTicketId}.`);
+    }
+    const noteButton = [...document.querySelectorAll('button')]
+      .find((button) => clean(button.textContent) === 'Ghi chú nội bộ');
+    if (!noteButton) return toast('Không tìm thấy nút Ghi chú nội bộ.');
+    mouseActivate(noteButton);
+    await new Promise((resolve) => setTimeout(resolve, 300));
+    const editor = [...document.querySelectorAll('textarea, [contenteditable="true"]')]
+      .find((element) => element.getClientRects().length > 0);
+    if (!editor) return toast('Không tìm thấy ô nhập ghi chú nội bộ.');
+    if (editor instanceof HTMLTextAreaElement || editor instanceof HTMLInputElement) {
+      nativeSet(editor, `Task ${data.taskUrl}`);
+    } else {
+      editor.focus();
+      editor.textContent = `Task ${data.taskUrl}`;
+      editor.dispatchEvent(new InputEvent('input', { bubbles: true, inputType: 'insertText', data: `Task ${data.taskUrl}` }));
+    }
+    await new Promise((resolve) => setTimeout(resolve, 180));
+    const saveNote = [...document.querySelectorAll('button')]
+      .find((button) => clean(button.textContent) === 'Lưu ghi chú' && !button.disabled);
+    if (!saveNote) return toast('Đã điền link nhưng nút Lưu ghi chú chưa sẵn sàng; vui lòng kiểm tra và bấm lưu.');
+    mouseActivate(saveNote);
+    toast('Đã gửi link task vào ghi chú nội bộ của ticket.');
   }
 
   function toast(message) {
@@ -524,12 +922,23 @@
   if (location.hostname === 'tracuunoibo.ghn.vn') {
     addButton('🔎 Lưu tra cứu', () => captureTrackingData({ wait: false, showFailure: true }));
     captureTrackingData({ wait: true, showFailure: false });
-  } else if (location.pathname.includes('/ghn-ticket/')) {
+  } else if (location.pathname.startsWith('/ghn-ticket/create-ticket')) {
+    addButton('⚡ Điền task', fillTaskForm);
+    setTimeout(fillTaskForm, 700);
+  } else if (/^\/ghn-ticket\/cs\/detail\//.test(location.pathname)) {
     addButton('💾 Lưu ticket', () => {
       const data = ticketData();
       save(data);
       toast(`Đã lưu ticket ${data.fdCode || ''} / đơn ${data.orderCode || ''}. Mở trang tra cứu đơn để lấy tiếp thông tin tiền.`);
-    });
+    }, 58);
+    addButton('🧾 Tạo task sự cố', openTaskPicker, 12);
+    const savedDraft = draft();
+    const currentTicketId = location.pathname.match(/\/cs\/detail\/(\d+)/)?.[1] || '';
+    if (savedDraft.taskUrl && (!savedDraft.ticketId || savedDraft.ticketId === currentTicketId)) {
+      addButton('🔗 Ghi link task', writeTaskLinkToSourceTicket, 104);
+    }
+  } else if (/^\/ghn-ticket\/detail\//.test(location.pathname)) {
+    handleCreatedTaskDetail();
   } else if (location.pathname === '/eform/form/create') {
     if (location.pathname === '/eform/form/create' && !new URLSearchParams(location.search).get('flowId')) {
       addEformModeBar();
