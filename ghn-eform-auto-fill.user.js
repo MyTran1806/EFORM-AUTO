@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         GHN - eForm đền bù & Task sự cố
 // @namespace    codex.ghn.internal
-// @version      2.0.0
+// @version      2.2.0
 // @description  Lấy dữ liệu ticket/tracuunoibo, tự điền eForm và form Task sự cố GHN; không tự tạo phiếu.
 // @homepageURL  https://github.com/MyTran1806/EFORM-AUTO
 // @updateURL    https://raw.githubusercontent.com/MyTran1806/EFORM-AUTO/main/ghn-eform-auto-fill.user.js
@@ -21,6 +21,8 @@
   'use strict';
 
   const STORE_KEY = 'ghn_compensation_draft_v1';
+  const TRACKING_CACHE_KEY = 'ghn_tracking_by_order_v1';
+  const TASK_LINK_CACHE_KEY = 'ghn_task_links_by_order_v1';
   const PENDING_FILL_KEY = 'ghn_compensation_pending_fill_v1';
   const TASK_TEMPLATE_CACHE_KEY = 'ghn_task_templates_cache_v1';
   const PENDING_TASK_KEY = 'ghn_pending_task_v1';
@@ -60,6 +62,52 @@
   };
   const draft = () => GM_getValue(STORE_KEY, {});
   const save = (patch) => GM_setValue(STORE_KEY, { ...draft(), ...patch, updatedAt: new Date().toISOString() });
+  const trackingCache = () => GM_getValue(TRACKING_CACHE_KEY, {});
+  function trackingForOrder(orderCode) {
+    return trackingCache()[clean(orderCode).toUpperCase()] || {};
+  }
+  function saveTrackingRecord(data) {
+    const orderCode = clean(data.trackingOrderCode).toUpperCase();
+    if (!orderCode) return;
+    const cache = trackingCache();
+    const nonEmpty = Object.fromEntries(Object.entries(data).filter(([, value]) => value !== '' && value != null));
+    cache[orderCode] = { ...(cache[orderCode] || {}), ...nonEmpty, trackingOrderCode: orderCode, updatedAt: new Date().toISOString() };
+    const recent = Object.entries(cache)
+      .sort(([, left], [, right]) => String(right.updatedAt || '').localeCompare(String(left.updatedAt || '')))
+      .slice(0, 30);
+    GM_setValue(TRACKING_CACHE_KEY, Object.fromEntries(recent));
+  }
+  function cleanTaskLinkCache() {
+    const expiresAt = Date.now() - 30 * 24 * 60 * 60 * 1000;
+    const recent = Object.entries(GM_getValue(TASK_LINK_CACHE_KEY, {}))
+      .filter(([, item]) => new Date(item.savedAt || 0).getTime() >= expiresAt)
+      .sort(([, left], [, right]) => String(right.savedAt || '').localeCompare(String(left.savedAt || '')))
+      .slice(0, 100);
+    const cleaned = Object.fromEntries(recent);
+    GM_setValue(TASK_LINK_CACHE_KEY, cleaned);
+    return cleaned;
+  }
+  function saveTaskLink(orderCode, taskId, taskUrl) {
+    const code = clean(orderCode).toUpperCase();
+    if (!code || !taskUrl) return;
+    const cache = cleanTaskLinkCache();
+    cache[code] = { orderCode: code, taskId, taskUrl, savedAt: new Date().toISOString() };
+    GM_setValue(TASK_LINK_CACHE_KEY, cache);
+    cleanTaskLinkCache();
+  }
+  function taskLinkForOrder(orderCode) {
+    const code = clean(orderCode).toUpperCase();
+    const cached = cleanTaskLinkCache()[code];
+    if (cached) return cached;
+    const pending = GM_getValue(PENDING_TASK_KEY, null);
+    const pendingTime = new Date(pending?.completedAt || pending?.preparedAt || 0).getTime();
+    if (clean(pending?.orderCode).toUpperCase() === code && pending?.taskUrl
+      && pendingTime >= Date.now() - 30 * 24 * 60 * 60 * 1000) {
+      saveTaskLink(code, pending.taskId || '', pending.taskUrl);
+      return cleanTaskLinkCache()[code] || null;
+    }
+    return null;
+  }
 
   function exactLeaf(text) {
     return [...document.querySelectorAll('span, div, p, label')]
@@ -101,6 +149,28 @@
     return clean(next && next.innerText);
   }
 
+  function pageValue(labelPatterns) {
+    const patterns = Array.isArray(labelPatterns) ? labelPatterns : [labelPatterns];
+    const nodes = [...document.querySelectorAll('label, dt, th, div, span, p')]
+      .filter((el) => el.children.length === 0 && clean(el.textContent).length < 100);
+    for (const node of nodes) {
+      const labelText = clean(node.textContent).replace(/[:：]\s*$/, '');
+      if (!patterns.some((pattern) => pattern.test(labelText))) continue;
+      const candidates = [
+        node.nextElementSibling,
+        node.parentElement?.querySelector('.value, [class*="value"], a, [title]'),
+        node.parentElement?.nextElementSibling,
+        node.closest('tr, [class*="row"], [class*="item"]')
+      ].filter(Boolean);
+      for (const candidate of candidates) {
+        const raw = clean(candidate.getAttribute?.('title') || candidate.innerText || candidate.textContent);
+        const value = clean(raw.replace(new RegExp(`^${labelText.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\s*[:：]?\\s*`, 'i'), ''));
+        if (value && value !== labelText && value.length < 300) return value;
+      }
+    }
+    return '';
+  }
+
   function ticketData() {
     const pageText = clean(document.body.innerText);
     const heading = [...document.querySelectorAll('div, span, h1, h2')]
@@ -128,31 +198,59 @@
   }
 
   function trackingData() {
-    const account = valueBeside('Tài khoản:');
+    const pageText = clean(document.body.innerText);
+    const query = new URLSearchParams(location.search);
+    const trackingOrderCode = valueBeside('Mã đơn hàng')
+      || pageValue([/^Mã đơn hàng$/i, /^Mã đơn$/i])
+      || query.get('order_code') || query.get('orderCode') || query.get('code')
+      || pageText.match(/\b[A-Z][A-Z0-9]{7}\b/)?.[0] || '';
+    const account = valueBeside('Tài khoản:') || pageValue([/^Tài khoản$/i, /^Khách hàng$/i]);
     const accountMatch = account.match(/(\d+)\s*[-–]\s*(.+)/);
     return {
-      clientId: accountMatch?.[1] || draft().clientId || '',
-      customerName: clean(accountMatch?.[2] || ''),
-      cod: money(valueBeside('Tiền thu hộ (COD):')),
-      declaredValue: money(valueBeside('Giá trị đơn hàng:')),
-      serviceFee: money(valueBeside('Tổng phí dịch vụ:')),
-      pickupHub: valueAfterLabel('Kho lấy') || valueBeside('Kho lấy:') || valueBeside('Bưu cục lấy:') || nearbyValue(/^(Kho|Bưu cục) lấy/i),
-      deliveryHub: valueAfterLabel('Kho giao') || valueBeside('Kho giao:') || valueBeside('Bưu cục giao:') || nearbyValue(/^(Kho|Bưu cục) giao/i),
-      currentHub: valueAfterLabel('Kho hiện tại') || valueBeside('Kho hiện tại:') || valueBeside('Bưu cục hiện tại:') || nearbyValue(/^(Kho|Bưu cục) hiện tại/i),
+      trackingOrderCode: clean(trackingOrderCode).toUpperCase(),
+      clientId: accountMatch?.[1] || pageValue([/^Client ID$/i, /^Mã khách hàng$/i]).match(/\d+/)?.[0] || '',
+      customerName: clean(accountMatch?.[2] || pageValue([/^Tên khách hàng$/i, /^Tên shop$/i])),
+      cod: money(valueBeside('Tiền thu hộ (COD):') || pageValue([/^Tiền thu hộ(?: \(COD\))?$/i, /^COD$/i])),
+      declaredValue: money(valueBeside('Giá trị đơn hàng:') || pageValue([/^Giá trị đơn hàng$/i, /^Khai giá$/i, /^Giá trị khai giá$/i])),
+      serviceFee: money(valueBeside('Tổng phí dịch vụ:') || pageValue([/^Tổng phí dịch vụ$/i, /^Giá cước(?: đơn hàng)?$/i, /^Phí dịch vụ$/i])),
+      pickupHub: valueAfterLabel('Kho lấy') || valueBeside('Kho lấy:') || valueBeside('Bưu cục lấy:') || pageValue([/^(Kho|Bưu cục) lấy$/i]) || nearbyValue(/^(Kho|Bưu cục) lấy/i),
+      deliveryHub: valueAfterLabel('Kho giao') || valueBeside('Kho giao:') || valueBeside('Bưu cục giao:') || pageValue([/^(Kho|Bưu cục) giao$/i]) || nearbyValue(/^(Kho|Bưu cục) giao/i),
+      currentHub: valueAfterLabel('Kho hiện tại') || valueBeside('Kho hiện tại:') || valueBeside('Bưu cục hiện tại:') || pageValue([/^(Kho|Bưu cục) hiện tại$/i]) || nearbyValue(/^(Kho|Bưu cục) hiện tại/i),
       trackingUrl: location.href
     };
   }
 
   async function captureTrackingData({ wait = true, showFailure = true } = {}) {
     const maxAttempts = wait ? 80 : 1;
+    let taskDataAnnounced = false;
     for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
       const data = trackingData();
-      const ready = data.clientId && data.customerName && data.cod !== '' && data.declaredValue !== '' && data.serviceFee !== '';
+      const previous = draft();
+      if (data.trackingOrderCode && clean(previous.trackingOrderCode).toUpperCase() !== data.trackingOrderCode) {
+        GM_setValue(STORE_KEY, {
+          ...previous,
+          trackingOrderCode: data.trackingOrderCode,
+          customerName: '', cod: '', declaredValue: '', serviceFee: '',
+          pickupHub: '', deliveryHub: '', currentHub: '',
+          trackingUrl: data.trackingUrl,
+          updatedAt: new Date().toISOString()
+        });
+      }
+      const ready = data.trackingOrderCode && data.clientId && data.customerName
+        && data.cod !== '' && data.declaredValue !== '' && data.serviceFee !== '';
+      const taskReady = data.trackingOrderCode && data.pickupHub && data.deliveryHub && data.currentHub;
+      saveTrackingRecord(data);
+      if (taskReady && !taskDataAnnounced) {
+        taskDataAnnounced = true;
+        toast(`Đã tự lưu dữ liệu kho của đơn ${data.trackingOrderCode}. Không cần bấm Lưu tra cứu.`);
+      }
       if (ready) {
         save(data);
-        toast(`Đã lưu đơn tra cứu: KH ${data.customerName}; COD ${data.cod}; khai giá ${data.declaredValue}; phí ${data.serviceFee}.`);
+        toast(`Đã tự lưu đầy đủ dữ liệu đơn ${data.trackingOrderCode}. Không cần bấm Lưu tra cứu.`);
         return true;
       }
+      const partial = Object.fromEntries(Object.entries(data).filter(([, value]) => value !== '' && value != null));
+      if (Object.keys(partial).length > 1) save(partial);
       await new Promise((resolve) => setTimeout(resolve, 250));
     }
     if (showFailure) toast('Trang tra cứu chưa tải đủ dữ liệu. Chờ trang tải xong rồi bấm “Lưu dữ liệu tra cứu”.');
@@ -362,30 +460,33 @@
   }
 
   async function fillEform() {
-    const data = draft();
+    const baseDraft = draft();
+    const data = { ...baseDraft, ...trackingForOrder(baseDraft.orderCode) };
     const currentFlowId = new URLSearchParams(location.search).get('flowId') || '';
     const isCashFlow = currentFlowId === CASH_FLOW_ID;
     const filled = new Set();
-    const set = (command, label, value) => {
-      const control = valueControl(command);
+    const set = (commands, label, value, labelPatterns) => {
+      const control = firstControl(Array.isArray(commands) ? commands : [commands], labelPatterns);
       if (control?.getClientRects().length && nativeSet(control, value) && control.value === String(value)) filled.add(label);
     };
     const defaultsOk = await applyFixedDefaults();
     await waitForCommand('ma_don_hang');
     await new Promise((resolve) => setTimeout(resolve, 500));
     const fillTicketFields = () => {
-      set('ma_don_hang', 'Mã đơn hàng', data.orderCode);
-      set('id_khach_hang', 'ID Khách Hàng', data.clientId);
-      set('ten_khach_hang', 'Tên Khách Hàng', data.customerName);
-      set('cod', 'COD', data.cod);
-      set('khai_gia', 'Khai giá', data.declaredValue);
-      set('gia_cuoc_don_hang', 'Giá cước đơn hàng', data.serviceFee);
-      set('ma_phieu_fd', 'Mã phiếu FD', data.fdCode);
+      set(['ma_don_hang', 'ma_don'], 'Mã đơn hàng', data.orderCode, [/mã đơn hàng/i]);
+      set(['id_khach_hang', 'client_id', 'ma_khach_hang'], 'ID Khách Hàng', data.clientId, [/id khách hàng/i, /client id/i]);
+      set(['ten_khach_hang', 'ten_khach_hang*', 'customer_name', 'ten_khach'], 'Tên Khách Hàng', data.customerName, [/tên khách hàng/i, /tên shop/i]);
+      set(['cod', 'cod*', 'tien_cod', 'gia_tri_cod'], 'COD', data.cod, [/^cod$/i, /tiền thu hộ/i]);
+      set(['khai_gia', 'khai_gia*', 'gia_tri_khai_gia', 'declared_value'], 'Khai giá', data.declaredValue, [/khai giá/i, /giá trị đơn hàng/i]);
+      set(['gia_cuoc_don_hang', 'gia_cuoc_don_hang*', 'gia_cuoc', 'phi_dich_vu', 'service_fee'], 'Giá cước đơn hàng', data.serviceFee, [/giá cước/i, /tổng phí dịch vụ/i]);
+      set(['ma_phieu_fd', 'fd_id'], 'Mã phiếu FD', data.fdCode, [/mã phiếu fd/i]);
       const taskLinkControl = firstControl(
         ['link_fd_hrw_task', 'link_task', 'link_fd_hrw'],
         [/link\s*fd\s*\/\s*hrw\s*\/\s*task/i, /link\s*task/i]
       );
-      if (taskLinkControl?.getClientRects().length && nativeSet(taskLinkControl, data.taskUrl || '')) {
+      const savedTask = taskLinkForOrder(data.orderCode);
+      const exactTaskUrl = savedTask?.taskUrl || '';
+      if (taskLinkControl?.getClientRects().length && nativeSet(taskLinkControl, exactTaskUrl || '')) {
         filled.add('Link FD/HRW/TASK');
       }
     };
@@ -455,16 +556,28 @@
   }
 
   function replaceTaskTemplate(template, data) {
-    return String(template || '')
+    let content = String(template || '')
+      .replace(/\r\n?/g, '\n')
+      .replace(/\\n/g, '\n')
       .replace(/#ma_don_hang/gi, data.orderCode || '')
       .replace(/#ticket_id/gi, data.ticketId || '')
       .replace(/#ten_nhan_vien/gi, data.ticketOwnerName || '')
       .replace(/#ma_nhan_vien/gi, data.ticketOwnerId || '');
+    // Dữ liệu JSON cũ từng bị dồn thành một dòng: khôi phục bố cục chuẩn của Sheet.
+    if (!content.includes('\n')) {
+      content = content
+        .replace(/\s+(Dear\s+all\s*,?)/i, '\n\n$1\n\n')
+        .replace(/\s+(Thanks)\s*$/i, '\n\n$1');
+    }
+    return content;
   }
 
   function taskHubForRule(rule, data) {
     const normalized = normalizeChoice(rule || '');
     if (!normalized) return '';
+    const ticketOrder = clean(data.orderCode).toUpperCase();
+    const trackingOrder = clean(data.trackingOrderCode).toUpperCase();
+    if (!ticketOrder || !trackingOrder || ticketOrder !== trackingOrder) return '';
     if (normalized.includes('kho giao')) return data.deliveryHub || '';
     if (normalized.includes('kho lay')) return data.pickupHub || '';
     if (normalized.includes('kho hien tai')) return data.currentHub || '';
@@ -537,7 +650,12 @@
     const render = () => {
       const item = sortedItems[Number(select.value) || 0];
       typeLine.textContent = `Loại sự cố: ${item.incidentLabel}`;
-      hubLine.textContent = item.responsibleRule ? `Quy tắc bộ phận: ${item.responsibleRule}` : 'Form này không có Bộ phận chịu trách nhiệm';
+      const resolvedHub = taskHubForRule(item.responsibleRule, {
+        ...trackingForOrder(sourceData.orderCode), orderCode: sourceData.orderCode
+      });
+      hubLine.textContent = item.responsibleRule
+        ? `Bộ phận chịu trách nhiệm (${item.responsibleRule}): ${resolvedHub || 'chưa có dữ liệu tra cứu đúng mã đơn'}`
+        : 'Form này không có Bộ phận chịu trách nhiệm';
       preview.value = replaceTaskTemplate(item.template, sourceData);
     };
     select.addEventListener('change', render);
@@ -562,12 +680,21 @@
         ...sourceData,
         templateItem: item,
         content: replaceTaskTemplate(item.template, sourceData),
-        responsibleHub: taskHubForRule(item.responsibleRule, draft()),
+        responsibleHub: taskHubForRule(item.responsibleRule, {
+          ...trackingForOrder(sourceData.orderCode), orderCode: sourceData.orderCode
+        }),
         preparedAt: new Date().toISOString()
       };
       GM_setValue(PENDING_TASK_KEY, pending);
       save(sourceData);
-      location.href = `${location.origin}/ghn-ticket/create-ticket?type=${encodeURIComponent(item.incidentType)}`;
+      const taskUrl = `${location.origin}/ghn-ticket/create-ticket?type=${encodeURIComponent(item.incidentType)}`;
+      const taskTab = window.open(taskUrl, '_blank');
+      if (taskTab) {
+        taskTab.focus();
+        closeTaskPicker();
+      } else {
+        toast('Trình duyệt đang chặn tab mới. Hãy cho phép pop-up của noibo.ghn.vn rồi bấm lại.');
+      }
     });
     render();
   }
@@ -592,6 +719,8 @@
       .filter((el) => el.children.length === 0 && clean(el.textContent).length < 100)
       .find((el) => labelPattern.test(clean(el.textContent)));
     if (!label) return null;
+    const formItem = label.closest('.ant-form-item, [class*="form-item"], [class*="formItem"]');
+    if (formItem?.querySelector('input, textarea, [role="combobox"], .ant-select')) return formItem;
     let container = label.parentElement;
     for (let level = 0; container && level < 6; level += 1, container = container.parentElement) {
       if (container.querySelector('input, textarea, [role="combobox"], .ant-select')) return container;
@@ -610,15 +739,25 @@
 
   async function chooseTaskCombobox(labelPattern, target) {
     if (!target) return false;
-    const container = fieldContainer(labelPattern);
+    let container = null;
+    const waitStarted = Date.now();
+    while (!container && Date.now() - waitStarted < 10000) {
+      container = fieldContainer(labelPattern);
+      if (!container) await new Promise((resolve) => setTimeout(resolve, 150));
+    }
     const select = container?.querySelector('.ant-select') || container?.querySelector('[role="combobox"]')?.closest('.ant-select');
     const input = select?.querySelector('input[role="combobox"], input');
+    const selected = clean(select?.querySelector('.ant-select-selection-item')?.textContent || '');
+    if (sameChoice(selected, target)) return true;
+    if (!select && !input) return false;
+    // API tìm bưu cục của GHN chỉ nhận mã đứng trước dấu "-", không nhận cả tên.
+    const searchCode = clean(target).split(/\s*[-–]\s*/, 1)[0];
     mouseActivate(select?.querySelector('.ant-select-selector') || select || input);
     await new Promise((resolve) => setTimeout(resolve, 180));
-    if (input) nativeSet(input, target);
-    const targetCode = clean(target).match(/[A-Z0-9]{4,}/i)?.[0] || '';
+    if (input) nativeSet(input, searchCode);
+    const targetCode = searchCode || clean(target).match(/[A-Z0-9]{4,}/i)?.[0] || '';
     const started = Date.now();
-    while (Date.now() - started < 4500) {
+    while (Date.now() - started < 8000) {
       const options = visibleOptions();
       const option = options.find((node) => sameChoice(node.textContent, target)
         || (targetCode && clean(node.textContent).toLowerCase().includes(targetCode.toLowerCase()))
@@ -652,10 +791,16 @@
       }
     }
 
+    const formReadyStarted = Date.now();
+    while (!fieldContainer(/Bộ phận phát hiện/i) && Date.now() - formReadyStarted < 15000) {
+      await new Promise((resolve) => setTimeout(resolve, 200));
+    }
     const detectedOk = await chooseTaskCombobox(/Bộ phận phát hiện/i, FIXED_DETECTED_HUB);
     let responsibleOk = true;
     if (pending.templateItem.responsibleRule) {
-      const hub = pending.responsibleHub || taskHubForRule(pending.templateItem.responsibleRule, draft());
+      const hub = pending.responsibleHub || taskHubForRule(pending.templateItem.responsibleRule, {
+        ...trackingForOrder(pending.orderCode), orderCode: pending.orderCode
+      });
       responsibleOk = hub ? await chooseTaskCombobox(/Bộ phận chịu trách nhiệm/i, hub) : false;
     }
 
@@ -670,9 +815,10 @@
     }
 
     const amountControl = taskTextControl(/Nhập số tiền/i, /Nhập số tiền/i);
+    const taskTracking = trackingForOrder(pending.orderCode);
     const amountValue = pending.templateItem.incidentType === 'qua_han_toan_trinh'
-      ? (draft().declaredValue || '')
-      : (draft().declaredValue || draft().serviceFee || '');
+      ? (taskTracking.declaredValue || '')
+      : (taskTracking.declaredValue || taskTracking.serviceFee || '');
     if (amountControl && amountValue) nativeSet(amountControl, amountValue);
     const contentControl = taskTextControl(/Nội dung yêu cầu/i, /Nhập nội dung yêu cầu/i);
     const contentOk = nativeSet(contentControl, pending.content);
@@ -688,25 +834,40 @@
   }
 
   async function chooseOwnerInDialog(ownerId, ownerName) {
-    const changeButton = [...document.querySelectorAll('button')]
-      .find((button) => clean(button.textContent) === 'Đổi người xử lý');
+    let changeButton = null;
+    const buttonStarted = Date.now();
+    while (!changeButton && Date.now() - buttonStarted < 15000) {
+      changeButton = [...document.querySelectorAll('button, [role="button"]')]
+        .find((button) => clean(button.textContent).includes('Đổi người xử lý'));
+      if (!changeButton) {
+        const text = [...document.querySelectorAll('span, div')]
+          .find((node) => node.children.length === 0 && clean(node.textContent).includes('Đổi người xử lý'));
+        changeButton = text?.closest('button, [role="button"]') || null;
+      }
+      if (!changeButton) await new Promise((resolve) => setTimeout(resolve, 200));
+    }
     if (!changeButton) return false;
     mouseActivate(changeButton);
-    await new Promise((resolve) => setTimeout(resolve, 250));
-    const dialog = document.querySelector('[role="dialog"]');
+    let dialog = null;
+    const dialogStarted = Date.now();
+    while (!dialog && Date.now() - dialogStarted < 5000) {
+      dialog = document.querySelector('[role="dialog"], .ant-modal:not([style*="display: none"])');
+      if (!dialog) await new Promise((resolve) => setTimeout(resolve, 150));
+    }
     const input = dialog?.querySelector('input[role="combobox"], input');
     if (!input) return false;
     mouseActivate(input);
-    nativeSet(input, ownerId || ownerName);
+    const ownerSearch = ownerId || ownerName;
+    nativeSet(input, ownerSearch);
     const started = Date.now();
-    while (Date.now() - started < 5000) {
-      const option = visibleOptions().find((node) => clean(node.textContent).includes(ownerId)
+    while (Date.now() - started < 8000) {
+      const option = visibleOptions().find((node) => (ownerId && clean(node.textContent).includes(ownerId))
         || (ownerName && clean(node.textContent).includes(ownerName)));
       if (option) {
         mouseActivate(option, false);
-        await new Promise((resolve) => setTimeout(resolve, 180));
+        await new Promise((resolve) => setTimeout(resolve, 300));
         const confirm = [...dialog.querySelectorAll('button')]
-          .find((button) => clean(button.textContent) === 'Xác nhận đổi' && !button.disabled);
+          .find((button) => /^(Xác nhận đổi|Xác nhận|Cập nhật)$/i.test(clean(button.textContent)) && !button.disabled);
         if (!confirm) return false;
         mouseActivate(confirm);
         return true;
@@ -718,50 +879,114 @@
 
   async function handleCreatedTaskDetail() {
     const pending = GM_getValue(PENDING_TASK_KEY, null);
-    if (!pending?.submittedAt) return;
-    const submittedAt = new Date(pending.submittedAt).getTime();
-    if (!Number.isFinite(submittedAt) || Date.now() - submittedAt > 60 * 60 * 1000) return;
+    if (!pending?.templateItem) return;
+    const preparedAt = new Date(pending.submittedAt || pending.preparedAt || '').getTime();
+    if (!Number.isFinite(preparedAt) || Date.now() - preparedAt > 60 * 60 * 1000) return;
     const taskId = location.pathname.match(/\/ghn-ticket\/detail\/(\d+)/)?.[1] || '';
     if (!taskId) return;
     const taskUrl = location.href;
+    saveTaskLink(pending.orderCode, taskId, taskUrl);
     save({ taskId, taskUrl });
-    let ownerAssigned = false;
-    if (pending.ticketOwnerId || pending.ticketOwnerName) {
-      await new Promise((resolve) => setTimeout(resolve, 700));
-      ownerAssigned = await chooseOwnerInDialog(pending.ticketOwnerId, pending.ticketOwnerName);
-    }
-    GM_setValue(PENDING_TASK_KEY, { ...pending, taskId, taskUrl, ownerAssigned, completedAt: new Date().toISOString() });
-    toast(`Đã lưu link task cho eForm${ownerAssigned ? ' và đã gán người phụ trách ticket làm người xử lý' : '; chưa tự gán được người xử lý, vui lòng kiểm tra thủ công'}.`);
+    const current = GM_getValue(PENDING_TASK_KEY, pending);
+    GM_setValue(PENDING_TASK_KEY, { ...current, taskId, taskUrl, completedAt: new Date().toISOString() });
+    toast('Đã lưu link Task để dùng cho eForm. Tool không tự đổi Người xử lý và không ghi chú vào ticket.');
   }
 
   async function writeTaskLinkToSourceTicket() {
     const data = draft();
-    if (!data.taskUrl) return toast('Chưa có link task trong dữ liệu nháp.');
+    if (!data.taskUrl) {
+      toast('Chưa có link task trong dữ liệu nháp.');
+      return false;
+    }
     const currentTicketId = location.pathname.match(/\/cs\/detail\/(\d+)/)?.[1] || '';
     if (data.ticketId && currentTicketId && data.ticketId !== currentTicketId) {
-      return toast(`Link task đang thuộc ticket ${data.ticketId}, không phải ticket ${currentTicketId}.`);
+      toast(`Link task đang thuộc ticket ${data.ticketId}, không phải ticket ${currentTicketId}.`);
+      return false;
     }
-    const noteButton = [...document.querySelectorAll('button')]
-      .find((button) => clean(button.textContent) === 'Ghi chú nội bộ');
-    if (!noteButton) return toast('Không tìm thấy nút Ghi chú nội bộ.');
-    mouseActivate(noteButton);
-    await new Promise((resolve) => setTimeout(resolve, 300));
-    const editor = [...document.querySelectorAll('textarea, [contenteditable="true"]')]
-      .find((element) => element.getClientRects().length > 0);
-    if (!editor) return toast('Không tìm thấy ô nhập ghi chú nội bộ.');
+    const findEditor = () => [...document.querySelectorAll('.ProseMirror[contenteditable="true"], [contenteditable="true"], textarea')]
+      .find((element) => element.getClientRects().length > 0 && !element.closest('[aria-hidden="true"]'));
+    let editor = findEditor();
+    if (!editor) {
+      const noteButton = [...document.querySelectorAll('button, [role="button"]')]
+        .find((button) => clean(button.textContent).includes('Ghi chú nội bộ'));
+      const noteText = !noteButton && [...document.querySelectorAll('div, span')]
+        .find((node) => node.children.length === 0 && clean(node.textContent) === 'Ghi chú nội bộ');
+      const opener = noteButton || noteText?.closest('button, [role="button"]') || noteText;
+      if (opener) {
+        mouseActivate(opener);
+        const editorStarted = Date.now();
+        while (!editor && Date.now() - editorStarted < 5000) {
+          editor = findEditor();
+          if (!editor) await new Promise((resolve) => setTimeout(resolve, 150));
+        }
+      }
+    }
+    if (!editor) {
+      toast('Không tìm thấy trình soạn thảo Ghi chú nội bộ.');
+      return false;
+    }
+    const noteContent = `Task ${data.taskUrl}`;
     if (editor instanceof HTMLTextAreaElement || editor instanceof HTMLInputElement) {
-      nativeSet(editor, `Task ${data.taskUrl}`);
+      nativeSet(editor, noteContent);
     } else {
       editor.focus();
-      editor.textContent = `Task ${data.taskUrl}`;
-      editor.dispatchEvent(new InputEvent('input', { bubbles: true, inputType: 'insertText', data: `Task ${data.taskUrl}` }));
+      const selection = window.getSelection();
+      const range = document.createRange();
+      range.selectNodeContents(editor);
+      selection.removeAllRanges();
+      selection.addRange(range);
+      const inserted = document.execCommand?.('insertText', false, noteContent);
+      if (!inserted) editor.textContent = noteContent;
+      editor.dispatchEvent(new InputEvent('beforeinput', { bubbles: true, inputType: 'insertText', data: noteContent }));
+      editor.dispatchEvent(new InputEvent('input', { bubbles: true, inputType: 'insertText', data: noteContent }));
+      editor.dispatchEvent(new Event('change', { bubbles: true }));
     }
-    await new Promise((resolve) => setTimeout(resolve, 180));
-    const saveNote = [...document.querySelectorAll('button')]
-      .find((button) => clean(button.textContent) === 'Lưu ghi chú' && !button.disabled);
-    if (!saveNote) return toast('Đã điền link nhưng nút Lưu ghi chú chưa sẵn sàng; vui lòng kiểm tra và bấm lưu.');
+    let saveNote = null;
+    const saveStarted = Date.now();
+    while (!saveNote && Date.now() - saveStarted < 5000) {
+      saveNote = [...document.querySelectorAll('button')]
+        .find((button) => /^(Lưu ghi chú|Gửi)$/i.test(clean(button.textContent)) && !button.disabled);
+      if (!saveNote) await new Promise((resolve) => setTimeout(resolve, 150));
+    }
+    if (!saveNote) {
+      toast('Đã điền link nhưng nút Lưu ghi chú chưa sẵn sàng; vui lòng kiểm tra và bấm lưu.');
+      return false;
+    }
     mouseActivate(saveNote);
+    const pending = GM_getValue(PENDING_TASK_KEY, null);
+    if (pending?.taskUrl === data.taskUrl) {
+      GM_setValue(PENDING_TASK_KEY, { ...pending, noteWrittenAt: new Date().toISOString() });
+    }
     toast('Đã gửi link task vào ghi chú nội bộ của ticket.');
+    return true;
+  }
+
+  function watchTaskCompletionForSourceTicket() {
+    const currentTicketId = location.pathname.match(/\/cs\/detail\/(\d+)/)?.[1] || '';
+    const watchStartedAt = Date.now();
+    let writing = false;
+    const check = async () => {
+      if (writing) return;
+      const pending = GM_getValue(PENDING_TASK_KEY, null);
+      if (!pending?.taskUrl || !pending?.completedAt || pending.noteWrittenAt || pending.autoNoteAttemptedAt) return;
+      if (pending.ticketId && currentTicketId && pending.ticketId !== currentTicketId) return;
+      const completedAt = new Date(pending.completedAt).getTime();
+      // Không xử lý lại Task tồn từ phiên/tab ticket trước.
+      if (!Number.isFinite(completedAt) || completedAt < watchStartedAt - 10000) return;
+      writing = true;
+      try {
+        GM_setValue(PENDING_TASK_KEY, { ...pending, autoNoteAttemptedAt: new Date().toISOString() });
+        save({ taskId: pending.taskId, taskUrl: pending.taskUrl });
+        if (await writeTaskLinkToSourceTicket()) {
+          const latest = GM_getValue(PENDING_TASK_KEY, pending);
+          GM_setValue(PENDING_TASK_KEY, { ...latest, noteWrittenAt: new Date().toISOString() });
+        }
+      } finally {
+        writing = false;
+      }
+    };
+    check();
+    setInterval(check, 1500);
   }
 
   function toast(message) {
@@ -849,6 +1074,71 @@
     document.body.appendChild(button);
   }
 
+  function addTicketActionBar(actions) {
+    const bar = document.createElement('div');
+    Object.assign(bar.style, {
+      position: 'fixed', right: '12px', bottom: '12px', zIndex: 999999,
+      display: 'flex', alignItems: 'stretch', gap: '2px', padding: '4px',
+      border: '1px solid #dbeafe', borderRadius: '10px', background: '#fff',
+      boxShadow: '0 5px 18px #0003', userSelect: 'none', touchAction: 'none'
+    });
+
+    const handle = document.createElement('span');
+    handle.textContent = '↕';
+    handle.title = 'Giữ và kéo để di chuyển cả khối';
+    Object.assign(handle.style, {
+      display: 'grid', placeItems: 'center', width: '22px', color: '#64748b',
+      font: '700 14px Arial', cursor: 'grab', borderRadius: '6px'
+    });
+    bar.appendChild(handle);
+
+    for (const action of actions) {
+      const button = document.createElement('button');
+      button.type = 'button';
+      button.textContent = action.label;
+      Object.assign(button.style, {
+        border: 0, borderRadius: '7px', padding: '8px 11px', color: '#fff',
+        background: action.background || '#1d4ed8', font: '700 13px/1.2 Arial',
+        cursor: 'pointer', whiteSpace: 'nowrap'
+      });
+      button.addEventListener('click', action.onClick);
+      bar.appendChild(button);
+    }
+
+    const positionKey = 'ghn_ticket_action_bar_position_v1';
+    const saved = GM_getValue(positionKey, null);
+    if (saved && Number.isFinite(saved.left) && Number.isFinite(saved.top)) {
+      Object.assign(bar.style, {
+        left: `${Math.max(0, Math.min(saved.left, innerWidth - 160))}px`,
+        top: `${Math.max(0, Math.min(saved.top, innerHeight - 44))}px`,
+        right: 'auto', bottom: 'auto'
+      });
+    }
+
+    let drag = null;
+    handle.addEventListener('pointerdown', (event) => {
+      const rect = bar.getBoundingClientRect();
+      drag = { id: event.pointerId, x: event.clientX, y: event.clientY, left: rect.left, top: rect.top };
+      handle.setPointerCapture(event.pointerId);
+      handle.style.cursor = 'grabbing';
+    });
+    handle.addEventListener('pointermove', (event) => {
+      if (!drag || event.pointerId !== drag.id) return;
+      const left = Math.max(0, Math.min(drag.left + event.clientX - drag.x, innerWidth - bar.offsetWidth));
+      const top = Math.max(0, Math.min(drag.top + event.clientY - drag.y, innerHeight - bar.offsetHeight));
+      Object.assign(bar.style, { left: `${left}px`, top: `${top}px`, right: 'auto', bottom: 'auto' });
+    });
+    handle.addEventListener('pointerup', (event) => {
+      if (!drag || event.pointerId !== drag.id) return;
+      const rect = bar.getBoundingClientRect();
+      GM_setValue(positionKey, { left: Math.round(rect.left), top: Math.round(rect.top) });
+      drag = null;
+      handle.style.cursor = 'grab';
+    });
+
+    document.body.appendChild(bar);
+  }
+
   function addEformModeBar() {
     const bar = document.createElement('div');
     Object.assign(bar.style, {
@@ -926,17 +1216,19 @@
     addButton('⚡ Điền task', fillTaskForm);
     setTimeout(fillTaskForm, 700);
   } else if (/^\/ghn-ticket\/cs\/detail\//.test(location.pathname)) {
-    addButton('💾 Lưu ticket', () => {
-      const data = ticketData();
-      save(data);
-      toast(`Đã lưu ticket ${data.fdCode || ''} / đơn ${data.orderCode || ''}. Mở trang tra cứu đơn để lấy tiếp thông tin tiền.`);
-    }, 58);
-    addButton('🧾 Tạo task sự cố', openTaskPicker, 12);
-    const savedDraft = draft();
-    const currentTicketId = location.pathname.match(/\/cs\/detail\/(\d+)/)?.[1] || '';
-    if (savedDraft.taskUrl && (!savedDraft.ticketId || savedDraft.ticketId === currentTicketId)) {
-      addButton('🔗 Ghi link task', writeTaskLinkToSourceTicket, 104);
-    }
+    const ticketActions = [
+      {
+        label: '💾 Lưu ticket',
+        onClick: () => {
+          const data = ticketData();
+          save(data);
+          toast(`Đã lưu ticket ${data.fdCode || ''} / đơn ${data.orderCode || ''}. Mở trang tra cứu đơn để lấy tiếp thông tin tiền.`);
+        },
+        background: '#2563eb'
+      },
+      { label: '🧾 Tạo task sự cố', onClick: openTaskPicker, background: '#1d4ed8' }
+    ];
+    addTicketActionBar(ticketActions);
   } else if (/^\/ghn-ticket\/detail\//.test(location.pathname)) {
     handleCreatedTaskDetail();
   } else if (location.pathname === '/eform/form/create') {
