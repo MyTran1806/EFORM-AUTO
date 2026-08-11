@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         GHN - eForm đền bù & Task sự cố
 // @namespace    codex.ghn.internal
-// @version      2.2.1
+// @version      2.2.2
 // @description  Lấy dữ liệu ticket/tracuunoibo, tự điền eForm và form Task sự cố GHN; không tự tạo phiếu.
 // @homepageURL  https://github.com/MyTran1806/EFORM-AUTO
 // @updateURL    https://raw.githubusercontent.com/MyTran1806/EFORM-AUTO/main/ghn-eform-auto-fill.user.js
@@ -482,15 +482,27 @@
       set(['khai_gia', 'khai_gia*', 'gia_tri_khai_gia', 'declared_value'], 'Khai giá', data.declaredValue, [/khai giá/i, /giá trị đơn hàng/i]);
       set(['gia_cuoc_don_hang', 'gia_cuoc_don_hang*', 'gia_cuoc', 'phi_dich_vu', 'service_fee'], 'Giá cước đơn hàng', data.serviceFee, [/giá cước/i, /tổng phí dịch vụ/i]);
       set(['ma_phieu_fd', 'fd_id'], 'Mã phiếu FD', data.fdCode, [/mã phiếu fd/i]);
-      const taskLinkControl = firstControl(
-        ['link_fd_hrw_task', 'link_task', 'link_fd_hrw'],
-        [/link\s*fd\s*\/\s*hrw\s*\/\s*task/i, /link\s*task/i]
-      );
-      const savedTask = taskLinkForOrder(data.orderCode);
-      const exactTaskUrl = savedTask?.taskUrl || '';
-      if (taskLinkControl?.getClientRects().length && nativeSet(taskLinkControl, exactTaskUrl || '')) {
-        filled.add('Link FD/HRW/TASK');
+    };
+    const fillTaskLink = async () => {
+      const exactTaskUrl = taskLinkForOrder(data.orderCode)?.taskUrl || '';
+      if (!exactTaskUrl) return 'missing';
+      const started = Date.now();
+      while (Date.now() - started < 10000) {
+        const taskLinkControl = firstControl(
+          ['link_fd_hrw_task', 'link_fd_hrw_task*', 'link_task', 'link_task*', 'link_fd_hrw', 'url_task'],
+          [/link\s*fd\s*\/\s*hrw\s*\/\s*task/i, /link\s*(?:fd|hrw|task)/i]
+        );
+        if (taskLinkControl?.getClientRects().length && !taskLinkControl.disabled) {
+          if (taskLinkControl.value !== exactTaskUrl) nativeSet(taskLinkControl, exactTaskUrl);
+          await new Promise((resolve) => setTimeout(resolve, 180));
+          if (taskLinkControl.value === exactTaskUrl) {
+            filled.add('Link FD/HRW/TASK');
+            return 'ok';
+          }
+        }
+        await new Promise((resolve) => setTimeout(resolve, 250));
       }
+      return 'field-not-ready';
     };
     fillTicketFields();
     const complaintChosen = await choose('loai_khieu_nai', data.complaintReason || '');
@@ -500,6 +512,7 @@
     // Các dropdown có thể khiến React dựng lại form; điền lại lần cuối sau khi giao diện ổn định.
     await new Promise((resolve) => setTimeout(resolve, 400));
     fillTicketFields();
+    const taskLinkStatus = await fillTaskLink();
     updateCompensationContent();
     const missing = [
       ['Mã đơn hàng', data.orderCode],
@@ -510,7 +523,7 @@
       ['Giá cước', data.serviceFee],
       ['Mã phiếu FD', data.fdCode]
     ].filter(([, value]) => value === '' || value == null).map(([name]) => name);
-    toast(`Mặc định eForm ${isCashFlow ? 'TIỀN MẶT' : 'XU'}: ${defaultsOk ? 'OK' : 'cần kiểm tra'}; đã điền ${filled.size} ô${missing.length ? `; thiếu dữ liệu nguồn: ${missing.join(', ')}` : ''}; Loại khiếu nại: ${complaintChosen ? 'OK' : 'cần kiểm tra'}; Thu hồi: ${recoveryChosen ? 'OK' : 'cần kiểm tra'}; Đối tác: ${partnerChosen ? 'OK' : 'cần kiểm tra'}${isCashFlow ? `; Tài khoản ngân hàng: ${bankChosen ? 'OK' : 'cần kiểm tra'}` : ''}. Nhập Nguyên nhân khiếu nại và Giá trị đền bù để tự ghép Nội dung đền bù. Không tự gửi phiếu.`);
+    toast(`Mặc định eForm ${isCashFlow ? 'TIỀN MẶT' : 'XU'}: ${defaultsOk ? 'OK' : 'cần kiểm tra'}; đã điền ${filled.size} ô${missing.length ? `; thiếu dữ liệu nguồn: ${missing.join(', ')}` : ''}; Link TASK: ${taskLinkStatus === 'ok' ? 'OK' : taskLinkStatus === 'missing' ? `không có link đúng mã ${data.orderCode}` : 'không tìm thấy trường để điền'}; Loại khiếu nại: ${complaintChosen ? 'OK' : 'cần kiểm tra'}; Thu hồi: ${recoveryChosen ? 'OK' : 'cần kiểm tra'}; Đối tác: ${partnerChosen ? 'OK' : 'cần kiểm tra'}${isCashFlow ? `; Tài khoản ngân hàng: ${bankChosen ? 'OK' : 'cần kiểm tra'}` : ''}. Nhập Nguyên nhân khiếu nại và Giá trị đền bù để tự ghép Nội dung đền bù. Không tự gửi phiếu.`);
   }
 
   function gmJson(url) {
@@ -906,7 +919,7 @@
     save({ taskId, taskUrl });
     const current = GM_getValue(PENDING_TASK_KEY, pending);
     GM_setValue(PENDING_TASK_KEY, { ...current, taskId, taskUrl, completedAt: new Date().toISOString() });
-    toast('Đã lưu link Task để dùng cho eForm. Tool không tự đổi Người xử lý và không ghi chú vào ticket.');
+    toast(`Đã lưu link Task cho đơn ${pending.orderCode} để dùng cho eForm. Tool không tự đổi Người xử lý và không ghi chú vào ticket.`);
   }
 
   async function writeTaskLinkToSourceTicket() {
