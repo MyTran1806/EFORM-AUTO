@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         GHN - eForm đền bù & Task sự cố
 // @namespace    codex.ghn.internal
-// @version      2.2.2
+// @version      2.3.0
 // @description  Lấy dữ liệu ticket/tracuunoibo, tự điền eForm và form Task sự cố GHN; không tự tạo phiếu.
 // @homepageURL  https://github.com/MyTran1806/EFORM-AUTO
 // @updateURL    https://raw.githubusercontent.com/MyTran1806/EFORM-AUTO/main/ghn-eform-auto-fill.user.js
@@ -917,9 +917,37 @@
     const taskUrl = location.href;
     saveTaskLink(pending.orderCode, taskId, taskUrl);
     save({ taskId, taskUrl });
+    let assignedToMe = false;
+    const currentBeforeAssign = GM_getValue(PENDING_TASK_KEY, pending);
+    if (!currentBeforeAssign.assignToMeAttemptedAt) {
+      GM_setValue(PENDING_TASK_KEY, {
+        ...currentBeforeAssign,
+        taskId,
+        taskUrl,
+        assignToMeAttemptedAt: new Date().toISOString()
+      });
+      const assignStarted = Date.now();
+      let assignToMe = null;
+      while (!assignToMe && Date.now() - assignStarted < 15000) {
+        const exactText = [...document.querySelectorAll('button, [role="button"], a, span, div')]
+          .find((node) => node.children.length === 0 && clean(node.textContent) === 'Gán cho tôi');
+        assignToMe = exactText?.closest('button, [role="button"], a') || exactText || null;
+        if (!assignToMe) await new Promise((resolve) => setTimeout(resolve, 200));
+      }
+      if (assignToMe) {
+        mouseActivate(assignToMe);
+        assignedToMe = true;
+      }
+    }
     const current = GM_getValue(PENDING_TASK_KEY, pending);
-    GM_setValue(PENDING_TASK_KEY, { ...current, taskId, taskUrl, completedAt: new Date().toISOString() });
-    toast(`Đã lưu link Task cho đơn ${pending.orderCode} để dùng cho eForm. Tool không tự đổi Người xử lý và không ghi chú vào ticket.`);
+    GM_setValue(PENDING_TASK_KEY, {
+      ...current,
+      taskId,
+      taskUrl,
+      assignedToMe,
+      completedAt: new Date().toISOString()
+    });
+    toast(`Đã lưu link Task cho đơn ${pending.orderCode} để dùng cho eForm; Gán cho tôi: ${assignedToMe ? 'OK' : 'cần kiểm tra'}. Tool không ghi chú vào ticket.`);
   }
 
   async function writeTaskLinkToSourceTicket() {
