@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         GHN - eForm đền bù & Task sự cố
 // @namespace    codex.ghn.internal
-// @version      2.3.0
+// @version      2.6.10
 // @description  Lấy dữ liệu ticket/tracuunoibo, tự điền eForm và form Task sự cố GHN; không tự tạo phiếu.
 // @homepageURL  https://github.com/MyTran1806/EFORM-AUTO
 // @updateURL    https://raw.githubusercontent.com/MyTran1806/EFORM-AUTO/main/ghn-eform-auto-fill.user.js
@@ -11,6 +11,7 @@
 // @match        https://noibo.ghn.vn/eform/*
 // @grant        GM_getValue
 // @grant        GM_setValue
+// @grant        GM_setClipboard
 // @grant        GM_xmlhttpRequest
 // @grant        unsafeWindow
 // @connect      raw.githubusercontent.com
@@ -23,10 +24,13 @@
 
   const STORE_KEY = 'ghn_compensation_draft_v1';
   const TRACKING_CACHE_KEY = 'ghn_tracking_by_order_v1';
+  const LAST_OPERATOR_BRIDGE_KEY = 'ghn_last_operator_bridge_v1';
   const TASK_LINK_CACHE_KEY = 'ghn_task_links_by_order_v1';
   const PENDING_FILL_KEY = 'ghn_compensation_pending_fill_v1';
   const TASK_TEMPLATE_CACHE_KEY = 'ghn_task_templates_cache_v1';
   const PENDING_TASK_KEY = 'ghn_pending_task_v1';
+  const PENDING_TASKS_KEY = 'ghn_pending_tasks_by_order_v1';
+  const TASK_TAB_CONTEXT_KEY = 'ghn_task_tab_context_v1';
   const TASK_TEMPLATE_URL = 'https://raw.githubusercontent.com/MyTran1806/EFORM-AUTO/main/task-templates.json';
   const TASK_TEMPLATE_COMMIT_API = 'https://api.github.com/repos/MyTran1806/EFORM-AUTO/commits/main';
   const FIXED_DETECTED_HUB = 'GPGPG004 - Customer Services B2C Team 03';
@@ -62,15 +66,49 @@
     const digits = clean(value).replace(/[^0-9]/g, '');
     return digits || '';
   };
+  function extractOrderCode(value) {
+    const text = String(value || '').toUpperCase();
+    return text.match(/(?:MÃ|MA)\s*(?:ĐƠN|DON)\s*(?:HÀNG|HANG)?\s*([A-Z][A-Z0-9]{7,11})/)?.[1]
+      || text.match(/MĐ\s*:\s*([A-Z][A-Z0-9]{7,11})/)?.[1]
+      || text.match(/\b([A-Z][A-Z0-9]{7,11})\b/)?.[1]
+      || '';
+  }
   const draft = () => GM_getValue(STORE_KEY, {});
   const save = (patch) => GM_setValue(STORE_KEY, { ...draft(), ...patch, updatedAt: new Date().toISOString() });
   const trackingCache = () => GM_getValue(TRACKING_CACHE_KEY, {});
   function trackingForOrder(orderCode) {
     return trackingCache()[clean(orderCode).toUpperCase()] || {};
   }
+  function operatorForOrder(orderCode) {
+    const code = clean(orderCode).toUpperCase();
+    const bridge = GM_getValue(LAST_OPERATOR_BRIDGE_KEY, {});
+    if (clean(bridge.orderCode).toUpperCase() === code && bridge.lastOperatorId) return {
+      lastOperatorId: bridge.lastOperatorId,
+      lastOperatorName: bridge.lastOperatorName || ''
+    };
+    const cached = trackingForOrder(code);
+    if (cached.lastOperatorId) return {
+      lastOperatorId: cached.lastOperatorId,
+      lastOperatorName: cached.lastOperatorName || ''
+    };
+    const current = draft();
+    const currentCode = clean(current.trackingOrderCode || current.orderCode).toUpperCase();
+    return currentCode === code ? {
+      lastOperatorId: current.lastOperatorId || '',
+      lastOperatorName: current.lastOperatorName || ''
+    } : { lastOperatorId: '', lastOperatorName: '' };
+  }
   function saveTrackingRecord(data) {
     const orderCode = clean(data.trackingOrderCode).toUpperCase();
     if (!orderCode) return;
+    if (data.lastOperatorId) {
+      GM_setValue(LAST_OPERATOR_BRIDGE_KEY, {
+        orderCode,
+        lastOperatorId: clean(data.lastOperatorId),
+        lastOperatorName: clean(data.lastOperatorName),
+        savedAt: new Date().toISOString()
+      });
+    }
     const cache = trackingCache();
     const nonEmpty = Object.fromEntries(Object.entries(data).filter(([, value]) => value !== '' && value != null));
     cache[orderCode] = { ...(cache[orderCode] || {}), ...nonEmpty, trackingOrderCode: orderCode, updatedAt: new Date().toISOString() };
@@ -97,18 +135,70 @@
     GM_setValue(TASK_LINK_CACHE_KEY, cache);
     cleanTaskLinkCache();
   }
+  function rememberPendingTask(pending) {
+    const code = clean(pending?.orderCode).toUpperCase();
+    if (!code) return;
+    const expiresAt = Date.now() - 24 * 60 * 60 * 1000;
+    const pendingTasks = Object.fromEntries(Object.entries(GM_getValue(PENDING_TASKS_KEY, {}))
+      .filter(([, item]) => new Date(item?.submittedAt || item?.preparedAt || 0).getTime() >= expiresAt));
+    pendingTasks[code] = { ...pending, orderCode: code };
+    GM_setValue(PENDING_TASKS_KEY, pendingTasks);
+  }
+  function recentPendingTasks() {
+    const single = GM_getValue(PENDING_TASK_KEY, null);
+    const mapped = GM_getValue(PENDING_TASKS_KEY, {});
+    const candidates = [...Object.values(mapped), single].filter((item) => item?.templateItem && item?.orderCode);
+    const unique = new Map();
+    candidates.forEach((item) => unique.set(clean(item.orderCode).toUpperCase(), item));
+    return [...unique.values()]
+      .filter((item) => Date.now() - new Date(item.submittedAt || item.preparedAt || 0).getTime() <= 24 * 60 * 60 * 1000)
+      .sort((left, right) => new Date(right.submittedAt || right.preparedAt || 0) - new Date(left.submittedAt || left.preparedAt || 0));
+  }
+  async function pendingTaskForCurrentDetail(taskId) {
+    let tabContext = null;
+    try { tabContext = JSON.parse(sessionStorage.getItem(TASK_TAB_CONTEXT_KEY) || 'null'); } catch (_) {}
+    const candidates = [tabContext, ...recentPendingTasks()]
+      .filter((item) => item?.templateItem && item?.orderCode)
+      .filter((item) => !item.completedAt || !item.taskId || item.taskId === taskId);
+    const started = Date.now();
+    while (Date.now() - started < 15000) {
+      const pageText = clean(document.body?.innerText).toUpperCase();
+      const matched = candidates.find((item) => {
+        const code = clean(item.orderCode).toUpperCase();
+        return code && new RegExp(`(^|[^A-Z0-9])${code}([^A-Z0-9]|$)`).test(pageText);
+      });
+      if (matched) return matched;
+      await new Promise((resolve) => setTimeout(resolve, 250));
+    }
+    return null;
+  }
+  async function orderCodeFromTaskDetail() {
+    const started = Date.now();
+    while (Date.now() - started < 15000) {
+      const pageText = clean(document.body?.innerText).toUpperCase();
+      const explicit = pageText.match(/(?:^|[^A-Z0-9])(?:ĐH|DH|MĐ|MD|MÃ ĐƠN(?: HÀNG)?|MA DON(?: HANG)?)\s*[:_\-]?\s*([A-Z][A-Z0-9]{7,11})(?=$|[^A-Z0-9])/i)?.[1] || '';
+      if (explicit) return explicit;
+      await new Promise((resolve) => setTimeout(resolve, 250));
+    }
+    return '';
+  }
   function taskLinkForOrder(orderCode) {
     const code = clean(orderCode).toUpperCase();
     const cached = cleanTaskLinkCache()[code];
-    if (cached) return cached;
     const pending = GM_getValue(PENDING_TASK_KEY, null);
-    const pendingTime = new Date(pending?.completedAt || pending?.preparedAt || 0).getTime();
-    if (clean(pending?.orderCode).toUpperCase() === code && pending?.taskUrl
-      && pendingTime >= Date.now() - 30 * 24 * 60 * 60 * 1000) {
-      saveTaskLink(code, pending.taskId || '', pending.taskUrl);
+    const mapped = GM_getValue(PENDING_TASKS_KEY, {})[code];
+    const candidates = [pending, mapped]
+      .filter((item) => clean(item?.orderCode).toUpperCase() === code && item?.taskUrl)
+      .sort((left, right) => new Date(right.completedAt || right.submittedAt || right.preparedAt || 0)
+        - new Date(left.completedAt || left.submittedAt || left.preparedAt || 0));
+    const newestPending = candidates[0];
+    const pendingTime = new Date(newestPending?.completedAt || newestPending?.submittedAt || newestPending?.preparedAt || 0).getTime();
+    const cachedTime = new Date(cached?.savedAt || 0).getTime();
+    if (newestPending && pendingTime >= Date.now() - 30 * 24 * 60 * 60 * 1000 && pendingTime > cachedTime) {
+      saveTaskLink(code, newestPending.taskId || '', newestPending.taskUrl);
       return cleanTaskLinkCache()[code] || null;
     }
-    return null;
+    return cached || null;
   }
 
   function exactLeaf(text) {
@@ -178,7 +268,8 @@
     const heading = [...document.querySelectorAll('div, span, h1, h2')]
       .map((el) => clean(el.textContent))
       .find((text) => text.includes('KHIẾU NẠI') && /MĐ:\s*[A-Z0-9]+/i.test(text)) || '';
-    const orderCode = valueBeside('Mã đơn hàng') || (heading.match(/MĐ:\s*([A-Z0-9]+)/i)?.[1] || '');
+    const orderCode = extractOrderCode(valueBeside('Mã đơn hàng'))
+      || extractOrderCode(heading.match(/MĐ:\s*([A-Z0-9]+)/i)?.[1] || '');
     const clientId = valueBeside('Client ID').match(/\d+/)?.[0] || '';
     const complaintReason = valueBeside('Lý do Khiếu nại');
     const fdCode = heading.match(/\|\s*(\d{8,})\b/)?.[1] || pageText.match(/\b(\d{12})\b/)?.[1] || '';
@@ -199,17 +290,64 @@
     };
   }
 
+  function lastOrderOperator() {
+    const activeHistoryPanel = [...document.querySelectorAll('[role="tabpanel"].active, [role="tabpanel"][aria-hidden="false"], .ant-tabs-tabpane-active')]
+      .find((panel) => normalizeChoice(panel.innerText).includes('nguoi thao tac'));
+    const firstHistoryRow = activeHistoryPanel?.querySelector('.responsive-table .table-row');
+    const operatorCell = firstHistoryRow?.querySelector('[data-label="3"]');
+    const operatorLines = operatorCell ? String(operatorCell.innerText || '').split(/\r?\n/).map(clean).filter(Boolean) : [];
+    const exactOperatorId = operatorLines.find((line) => /^\d{5,}$/.test(line)) || '';
+    if (exactOperatorId) {
+      return {
+        lastOperatorId: exactOperatorId,
+        lastOperatorName: operatorLines.find((line) => line !== exactOperatorId) || ''
+      };
+    }
+    const header = [...document.querySelectorAll('th, [role="columnheader"], div, span')]
+      .find((node) => node.children.length === 0 && normalizeChoice(node.textContent) === 'nguoi thao tac');
+    if (!header) return { lastOperatorId: '', lastOperatorName: '' };
+    const headerRow = header.closest('tr, [role="row"]') || header.parentElement;
+    const headerCells = headerRow ? [...headerRow.children] : [];
+    const operatorIndex = Math.max(0, headerCells.findIndex((cell) => normalizeChoice(cell.textContent) === 'nguoi thao tac'));
+    const rowParent = headerRow?.parentElement;
+    const rows = rowParent ? [...rowParent.children].slice([...rowParent.children].indexOf(headerRow) + 1) : [];
+    for (const row of rows) {
+      const cells = [...row.children];
+      const operatorText = clean((cells[operatorIndex] || cells[cells.length - 1])?.innerText);
+      const operatorId = operatorText.match(/\b(\d{5,})\b/)?.[1] || '';
+      if (operatorId) {
+        return {
+          lastOperatorId: operatorId,
+          lastOperatorName: clean(operatorText.replace(operatorId, ''))
+        };
+      }
+    }
+    const headerRect = header.getBoundingClientRect();
+    const candidate = [...document.querySelectorAll('div, span, td')]
+      .filter((node) => node.children.length === 0 && /^\d{5,}$/.test(clean(node.textContent)))
+      .map((node) => ({ node, rect: node.getBoundingClientRect() }))
+      .filter(({ rect }) => rect.width > 0 && rect.top > headerRect.bottom && rect.top < headerRect.bottom + 1200
+        && rect.left > headerRect.left - 180)
+      .sort((left, right) => left.rect.top - right.rect.top)[0]?.node;
+    if (!candidate) return { lastOperatorId: '', lastOperatorName: '' };
+    return {
+      lastOperatorId: clean(candidate.textContent),
+      lastOperatorName: clean(candidate.previousElementSibling?.textContent || '')
+    };
+  }
+
   function trackingData() {
     const pageText = clean(document.body.innerText);
     const query = new URLSearchParams(location.search);
-    const trackingOrderCode = valueBeside('Mã đơn hàng')
+    const trackingOrderCode = extractOrderCode(valueBeside('Mã đơn hàng'))
       || pageValue([/^Mã đơn hàng$/i, /^Mã đơn$/i])
       || query.get('order_code') || query.get('orderCode') || query.get('code')
       || pageText.match(/\b[A-Z][A-Z0-9]{7}\b/)?.[0] || '';
     const account = valueBeside('Tài khoản:') || pageValue([/^Tài khoản$/i, /^Khách hàng$/i]);
     const accountMatch = account.match(/(\d+)\s*[-–]\s*(.+)/);
+    const operator = lastOrderOperator();
     return {
-      trackingOrderCode: clean(trackingOrderCode).toUpperCase(),
+      trackingOrderCode: extractOrderCode(trackingOrderCode),
       clientId: accountMatch?.[1] || pageValue([/^Client ID$/i, /^Mã khách hàng$/i]).match(/\d+/)?.[0] || '',
       customerName: clean(accountMatch?.[2] || pageValue([/^Tên khách hàng$/i, /^Tên shop$/i])),
       cod: money(valueBeside('Tiền thu hộ (COD):') || pageValue([/^Tiền thu hộ(?: \(COD\))?$/i, /^COD$/i])),
@@ -218,6 +356,7 @@
       pickupHub: valueAfterLabel('Kho lấy') || valueBeside('Kho lấy:') || valueBeside('Bưu cục lấy:') || pageValue([/^(Kho|Bưu cục) lấy$/i]) || nearbyValue(/^(Kho|Bưu cục) lấy/i),
       deliveryHub: valueAfterLabel('Kho giao') || valueBeside('Kho giao:') || valueBeside('Bưu cục giao:') || pageValue([/^(Kho|Bưu cục) giao$/i]) || nearbyValue(/^(Kho|Bưu cục) giao/i),
       currentHub: valueAfterLabel('Kho hiện tại') || valueBeside('Kho hiện tại:') || valueBeside('Bưu cục hiện tại:') || pageValue([/^(Kho|Bưu cục) hiện tại$/i]) || nearbyValue(/^(Kho|Bưu cục) hiện tại/i),
+      ...operator,
       trackingUrl: location.href
     };
   }
@@ -238,6 +377,9 @@
           updatedAt: new Date().toISOString()
         });
       }
+      const onHistoryTab = new URLSearchParams(location.search).get('tab') === 'order-history'
+        || [...document.querySelectorAll('[role="tab"][aria-selected="true"]')]
+          .some((tab) => normalizeChoice(tab.textContent) === 'lich su don hang');
       const ready = data.trackingOrderCode && data.clientId && data.customerName
         && data.cod !== '' && data.declaredValue !== '' && data.serviceFee !== '';
       const taskReady = data.trackingOrderCode && data.pickupHub && data.deliveryHub && data.currentHub;
@@ -246,7 +388,12 @@
         taskDataAnnounced = true;
         toast(`Đã tự lưu dữ liệu kho của đơn ${data.trackingOrderCode}. Không cần bấm Lưu tra cứu.`);
       }
-      if (ready) {
+      if (onHistoryTab && data.trackingOrderCode && data.lastOperatorId) {
+        save(data);
+        toast(`Đã lưu người thao tác cuối ${data.lastOperatorId} cho đơn ${data.trackingOrderCode}.`);
+        return true;
+      }
+      if (ready && (!onHistoryTab || data.lastOperatorId)) {
         save(data);
         toast(`Đã tự lưu đầy đủ dữ liệu đơn ${data.trackingOrderCode}. Không cần bấm Lưu tra cứu.`);
         return true;
@@ -259,6 +406,31 @@
     return false;
   }
 
+  function watchTrackingHistory() {
+    let timer = 0;
+    let lastSaved = '';
+    const inspect = () => {
+      const data = trackingData();
+      if (!data.trackingOrderCode || !data.lastOperatorId) return;
+      const signature = `${data.trackingOrderCode}:${data.lastOperatorId}`;
+      const cached = trackingForOrder(data.trackingOrderCode);
+      if (signature === lastSaved && cached.lastOperatorId === data.lastOperatorId) return;
+      saveTrackingRecord(data);
+      save(data);
+      if (signature !== lastSaved && cached.lastOperatorId !== data.lastOperatorId) {
+        toast(`Đã lưu người thao tác cuối: ${data.lastOperatorId}.`);
+      }
+      lastSaved = signature;
+    };
+    const schedule = () => {
+      clearTimeout(timer);
+      timer = setTimeout(inspect, 300);
+    };
+    new MutationObserver(schedule).observe(document.body, { childList: true, subtree: true });
+    setInterval(inspect, 1200);
+    schedule();
+  }
+
   function nativeSet(input, value) {
     if (!input || value === '' || value == null) return false;
     const proto = input instanceof HTMLTextAreaElement ? HTMLTextAreaElement.prototype : HTMLInputElement.prototype;
@@ -267,6 +439,42 @@
     input.dispatchEvent(new Event('input', { bubbles: true }));
     input.dispatchEvent(new Event('change', { bubbles: true }));
     input.dispatchEvent(new Event('blur', { bubbles: true }));
+    return true;
+  }
+
+  function nativeSearchSet(input, value) {
+    if (!input || value == null) return false;
+    const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')?.set;
+    input.focus();
+    setter ? setter.call(input, String(value)) : (input.value = String(value));
+    const pageWindow = typeof unsafeWindow !== 'undefined' ? unsafeWindow : window;
+    const InputEventClass = pageWindow.InputEvent || pageWindow.Event;
+    input.dispatchEvent(new InputEventClass('input', {
+      bubbles: true,
+      cancelable: true,
+      data: String(value),
+      inputType: value === '' ? 'deleteContentBackward' : 'insertText'
+    }));
+    input.dispatchEvent(new Event('change', { bubbles: true }));
+    input.dispatchEvent(new pageWindow.KeyboardEvent('keyup', {
+      key: String(value).slice(-1),
+      bubbles: true,
+      cancelable: true
+    }));
+    return true;
+  }
+
+  function browserInsertSearch(input, value) {
+    if (!input || value == null) return false;
+    input.focus();
+    input.select();
+    let inserted = false;
+    try {
+      inserted = document.execCommand('insertText', false, String(value));
+    } catch (_) {
+      inserted = false;
+    }
+    if (!inserted || input.value !== String(value)) return nativeSearchSet(input, value);
     return true;
   }
 
@@ -385,7 +593,7 @@
     if (!element) return;
     if (shouldScroll) element.scrollIntoView({ block: 'center', inline: 'nearest' });
     const pageWindow = typeof unsafeWindow !== 'undefined' ? unsafeWindow : window;
-    for (const type of ['pointerdown', 'mousedown', 'pointerup', 'mouseup', 'click']) {
+    for (const type of ['pointerdown', 'mousedown', 'pointerup', 'mouseup']) {
       const EventClass = type.startsWith('pointer') && pageWindow.PointerEvent ? pageWindow.PointerEvent : pageWindow.MouseEvent;
       element.dispatchEvent(new EventClass(type, { bubbles: true, cancelable: true, view: pageWindow, button: 0 }));
     }
@@ -409,7 +617,7 @@
     if (!optionText || !(await waitForCommand(command))) return false;
     const input = valueControl(command);
     const select = input?.closest('.ant-select');
-    mouseActivate(select?.querySelector('.ant-select-selector') || select || input);
+    mouseActivate(select?.querySelector('.ant-select-content, .ant-select-selector') || select || input);
     const started = Date.now();
     while (Date.now() - started < 2500) {
       const dropdown = document.querySelector('.ant-select-dropdown:not(.ant-select-dropdown-hidden)');
@@ -463,7 +671,8 @@
 
   async function fillEform() {
     const baseDraft = draft();
-    const data = { ...baseDraft, ...trackingForOrder(baseDraft.orderCode) };
+    const safeOrderCode = extractOrderCode(baseDraft.orderCode);
+    const data = { ...baseDraft, ...trackingForOrder(safeOrderCode), orderCode: safeOrderCode };
     const currentFlowId = new URLSearchParams(location.search).get('flowId') || '';
     const isCashFlow = currentFlowId === CASH_FLOW_ID;
     const filled = new Set();
@@ -523,7 +732,9 @@
       ['Giá cước', data.serviceFee],
       ['Mã phiếu FD', data.fdCode]
     ].filter(([, value]) => value === '' || value == null).map(([name]) => name);
-    toast(`Mặc định eForm ${isCashFlow ? 'TIỀN MẶT' : 'XU'}: ${defaultsOk ? 'OK' : 'cần kiểm tra'}; đã điền ${filled.size} ô${missing.length ? `; thiếu dữ liệu nguồn: ${missing.join(', ')}` : ''}; Link TASK: ${taskLinkStatus === 'ok' ? 'OK' : taskLinkStatus === 'missing' ? `không có link đúng mã ${data.orderCode}` : 'không tìm thấy trường để điền'}; Loại khiếu nại: ${complaintChosen ? 'OK' : 'cần kiểm tra'}; Thu hồi: ${recoveryChosen ? 'OK' : 'cần kiểm tra'}; Đối tác: ${partnerChosen ? 'OK' : 'cần kiểm tra'}${isCashFlow ? `; Tài khoản ngân hàng: ${bankChosen ? 'OK' : 'cần kiểm tra'}` : ''}. Nhập Nguyên nhân khiếu nại và Giá trị đền bù để tự ghép Nội dung đền bù. Không tự gửi phiếu.`);
+    const choicesOk = defaultsOk && complaintChosen && recoveryChosen && partnerChosen && bankChosen;
+    const linkSummary = taskLinkStatus === 'ok' ? 'OK' : taskLinkStatus === 'missing' ? 'chưa có' : 'cần kiểm tra';
+    toast(`eForm ${isCashFlow ? 'TIỀN MẶT' : 'XU'}: ${choicesOk ? 'OK' : 'cần kiểm tra'} · Điền ${filled.size} ô · Link TASK: ${linkSummary}${missing.length ? ` · Thiếu ${missing.length} mục` : ''}`);
   }
 
   function gmJson(url) {
@@ -637,18 +848,35 @@
     const meta = document.createElement('div');
     meta.textContent = `Ticket ${sourceData.ticketId || '(không xác định)'} · Đơn ${sourceData.orderCode || '(chưa có mã đơn)'} · dữ liệu ${payload.version || payload.publishedAt || 'hiện tại'}${payload.commitSha ? ` · commit ${payload.commitSha.slice(0, 7)}` : ''}`;
     Object.assign(meta.style, { color: '#667085', marginBottom: '14px' });
-    const label = document.createElement('label');
-    label.textContent = 'Nguyên nhân';
-    Object.assign(label.style, { display: 'block', fontWeight: '700', marginBottom: '6px' });
-    const select = document.createElement('select');
-    Object.assign(select.style, { width: '100%', padding: '10px', border: '1px solid #cfd4dc', borderRadius: '8px', background: '#fff', color: '#202124' });
     const sortedItems = [...payload.items].sort((a, b) => `${a.complaintType}|${a.reason}`.localeCompare(`${b.complaintType}|${b.reason}`, 'vi'));
-    for (const [index, item] of sortedItems.entries()) {
+    const selectStyle = { width: '100%', padding: '10px', border: '1px solid #cfd4dc', borderRadius: '8px', background: '#fff', color: '#202124' };
+    const labelStyle = { display: 'block', fontWeight: '700', marginBottom: '6px' };
+    const groupLabel = document.createElement('label');
+    groupLabel.textContent = 'Nhóm nguyên nhân';
+    Object.assign(groupLabel.style, labelStyle);
+    const groupSelect = document.createElement('select');
+    Object.assign(groupSelect.style, selectStyle);
+    const groupPlaceholder = document.createElement('option');
+    groupPlaceholder.value = '';
+    groupPlaceholder.textContent = 'Chọn nhóm nguyên nhân';
+    groupPlaceholder.disabled = true;
+    groupPlaceholder.hidden = true;
+    groupPlaceholder.selected = true;
+    groupSelect.appendChild(groupPlaceholder);
+    const groups = [...new Set(sortedItems.map((item) => clean(item.complaintType) || 'Khác'))]
+      .sort((a, b) => a.localeCompare(b, 'vi'));
+    for (const group of groups) {
       const option = document.createElement('option');
-      option.value = String(index);
-      option.textContent = `${item.complaintType ? `${item.complaintType} — ` : ''}${item.reason}`;
-      select.appendChild(option);
+      option.value = group;
+      option.textContent = group;
+      groupSelect.appendChild(option);
     }
+    const detailLabel = document.createElement('label');
+    detailLabel.textContent = 'Nguyên nhân chi tiết';
+    Object.assign(detailLabel.style, { ...labelStyle, marginTop: '12px' });
+    const detailSelect = document.createElement('select');
+    Object.assign(detailSelect.style, selectStyle);
+    detailSelect.disabled = true;
     const summary = document.createElement('div');
     Object.assign(summary.style, { marginTop: '12px', padding: '12px', borderRadius: '8px', background: '#f5f7fa' });
     const typeLine = document.createElement('div');
@@ -673,12 +901,17 @@
     }
     Object.assign(proceed.style, { marginLeft: 'auto', background: '#ed5b22', borderColor: '#ed5b22', color: '#fff' });
     actions.append(refresh, cancel, proceed);
-    panel.append(title, meta, label, select, summary, actions);
+    panel.append(title, meta, groupLabel, groupSelect, detailLabel, detailSelect, summary, actions);
     overlay.appendChild(panel);
     document.body.appendChild(overlay);
 
+    const selectedItem = () => detailSelect.value === '' ? null : sortedItems[Number(detailSelect.value)] || null;
     const render = () => {
-      const item = sortedItems[Number(select.value) || 0];
+      const item = selectedItem();
+      summary.style.display = item ? 'block' : 'none';
+      proceed.disabled = !item;
+      proceed.style.opacity = item ? '1' : '.55';
+      if (!item) return;
       typeLine.textContent = `Loại sự cố: ${item.incidentLabel}`;
       const resolvedHub = taskHubForRule(item.responsibleRule, {
         ...trackingForOrder(sourceData.orderCode), orderCode: sourceData.orderCode
@@ -688,7 +921,33 @@
         : 'Form này không có Bộ phận chịu trách nhiệm';
       preview.value = replaceTaskTemplate(item.template, sourceData);
     };
-    select.addEventListener('change', render);
+    groupSelect.addEventListener('change', () => {
+      detailSelect.replaceChildren();
+      const placeholder = document.createElement('option');
+      placeholder.value = '';
+      placeholder.textContent = groupSelect.value ? 'Chọn nguyên nhân chi tiết' : 'Chọn nhóm nguyên nhân trước';
+      placeholder.disabled = true;
+      placeholder.hidden = true;
+      placeholder.selected = true;
+      detailSelect.appendChild(placeholder);
+      const childIndexes = [];
+      sortedItems.forEach((item, index) => {
+        const group = clean(item.complaintType) || 'Khác';
+        if (group !== groupSelect.value) return;
+        childIndexes.push(index);
+        const option = document.createElement('option');
+        option.value = String(index);
+        option.textContent = item.reason;
+        detailSelect.appendChild(option);
+      });
+      const hasSingleChild = childIndexes.length === 1;
+      detailLabel.style.display = hasSingleChild ? 'none' : 'block';
+      detailSelect.style.display = hasSingleChild ? 'none' : 'block';
+      detailSelect.disabled = !groupSelect.value || hasSingleChild;
+      if (hasSingleChild) detailSelect.value = String(childIndexes[0]);
+      render();
+    });
+    detailSelect.addEventListener('change', render);
     cancel.addEventListener('click', closeTaskPicker);
     overlay.addEventListener('click', (event) => { if (event.target === overlay) closeTaskPicker(); });
     refresh.addEventListener('click', async () => {
@@ -705,9 +964,24 @@
       }
     });
     proceed.addEventListener('click', () => {
-      const item = sortedItems[Number(select.value) || 0];
+      const item = selectedItem();
+      if (!item) return;
+      const taskOperator = operatorForOrder(sourceData.orderCode);
+      const personRequired = new Set([
+        normalizeChoice('Sai quy trình đơn hàng giao 1 phần'),
+        normalizeChoice('Người nhận khiếu nại chưa nhận được hàng'),
+        normalizeChoice('Người gửi khiếu nại chưa nhận được hàng trả')
+      ]).has(normalizeChoice(item.incidentLabel));
+      if (personRequired && taskOperator.lastOperatorId) {
+        const employeeId = String(taskOperator.lastOperatorId).match(/\b\d{5,}\b/)?.[0] || '';
+        if (employeeId) {
+          GM_setClipboard(employeeId);
+          navigator.clipboard?.writeText(employeeId)?.catch(() => {});
+        }
+      }
       const pending = {
         ...sourceData,
+        ...taskOperator,
         templateItem: item,
         content: replaceTaskTemplate(item.template, sourceData),
         responsibleHub: taskHubForRule(item.responsibleRule, {
@@ -716,10 +990,12 @@
         preparedAt: new Date().toISOString()
       };
       GM_setValue(PENDING_TASK_KEY, pending);
+      rememberPendingTask(pending);
       save(sourceData);
       const taskUrl = `${location.origin}/ghn-ticket/create-ticket?type=${encodeURIComponent(item.incidentType)}`;
       const taskTab = window.open(taskUrl, '_blank');
       if (taskTab) {
+        try { taskTab.sessionStorage.setItem(TASK_TAB_CONTEXT_KEY, JSON.stringify(pending)); } catch (_) {}
         taskTab.focus();
         closeTaskPicker();
       } else {
@@ -777,30 +1053,83 @@
     }
     const select = container?.querySelector('.ant-select') || container?.querySelector('[role="combobox"]')?.closest('.ant-select');
     const input = select?.querySelector('input[role="combobox"], input');
-    const selected = clean(select?.querySelector('.ant-select-selection-item')?.textContent || '');
+    const selectedValue = () => {
+      const legacy = select?.querySelector('.ant-select-selection-item');
+      const current = select?.querySelector('.ant-select-content-has-value');
+      return clean(legacy?.textContent || current?.getAttribute('title') || current?.textContent || '');
+    };
+    const selected = selectedValue();
     if (sameChoice(selected, target)) return true;
     if (!select && !input) return false;
     // API tìm bưu cục của GHN chỉ nhận mã đứng trước dấu "-", không nhận cả tên.
     const searchCode = clean(target).split(/\s*[-–]\s*/, 1)[0];
     mouseActivate(select?.querySelector('.ant-select-selector') || select || input);
     await new Promise((resolve) => setTimeout(resolve, 180));
-    if (input) nativeSet(input, searchCode);
+    if (input) browserInsertSearch(input, searchCode);
     const targetCode = searchCode || clean(target).match(/[A-Z0-9]{4,}/i)?.[0] || '';
     const started = Date.now();
+    let searchRetried = false;
     while (Date.now() - started < 8000) {
-      const options = visibleOptions();
-      const option = options.find((node) => sameChoice(node.textContent, target)
+      const listboxId = input?.getAttribute('aria-controls') || input?.getAttribute('aria-owns') || '';
+      const linkedDropdown = listboxId ? document.getElementById(listboxId)?.closest('.ant-select-dropdown') : null;
+      const options = [...(linkedDropdown?.querySelectorAll('.ant-select-item-option') || visibleOptions())]
+        .filter((node) => node.getClientRects().length > 0 && node.getAttribute('aria-disabled') !== 'true');
+      let option = options.find((node) => sameChoice(node.textContent, target)
         || (targetCode && clean(node.textContent).toLowerCase().includes(targetCode.toLowerCase()))
         || clean(node.textContent).toLowerCase().includes(clean(target).toLowerCase()));
+      if (!option && targetCode) {
+        const matchingLeaves = [...document.querySelectorAll('[role="option"], li, div, span')]
+          .filter((node) => node.getClientRects().length > 0 && !node.querySelector('input'))
+          .filter((node) => clean(node.textContent).includes(targetCode) && clean(node.textContent).length < 160)
+          .filter((node) => ![...node.children].some((child) => clean(child.textContent).includes(targetCode)));
+        const leaf = matchingLeaves.sort((left, right) => {
+          const leftRect = left.getBoundingClientRect();
+          const rightRect = right.getBoundingClientRect();
+          return (leftRect.width * leftRect.height) - (rightRect.width * rightRect.height);
+        })[0];
+        option = leaf?.closest('[role="option"], li, [class*="option"], [class*="item"]') || leaf || null;
+      }
       if (option) {
         mouseActivate(option, false);
-        await new Promise((resolve) => setTimeout(resolve, 250));
-        return true;
+        const selectionStarted = Date.now();
+        while (Date.now() - selectionStarted < 1800) {
+          const selectedAfterClick = selectedValue();
+          if (selectedAfterClick && (!targetCode || selectedAfterClick.toLowerCase().includes(targetCode.toLowerCase()))) {
+            await new Promise((resolve) => setTimeout(resolve, 250));
+            return true;
+          }
+          await new Promise((resolve) => setTimeout(resolve, 100));
+        }
+      }
+      if (!searchRetried && input && Date.now() - started > 3000) {
+        searchRetried = true;
+        mouseActivate(select?.querySelector('.ant-select-content, .ant-select-selector') || select || input);
+        browserInsertSearch(input, '');
+        await new Promise((resolve) => setTimeout(resolve, 80));
+        browserInsertSearch(input, searchCode);
       }
       await new Promise((resolve) => setTimeout(resolve, 120));
     }
     pressSyntheticKey(input, 'Escape');
     return false;
+  }
+
+  async function prepareTaskComboboxPaste(labelPattern, value) {
+    const employeeId = String(value || '').match(/\b\d{5,}\b/)?.[0] || '';
+    if (!employeeId) return false;
+    let container = null;
+    const started = Date.now();
+    while (!container && Date.now() - started < 5000) {
+      container = fieldContainer(labelPattern);
+      if (!container) await new Promise((resolve) => setTimeout(resolve, 120));
+    }
+    const select = container?.querySelector('.ant-select') || container?.querySelector('[role="combobox"]')?.closest('.ant-select');
+    const input = select?.querySelector('input[role="combobox"], input');
+    if (!select || !input) return false;
+    container.querySelector('[data-ghn-employee-copy]')?.remove();
+    select.scrollIntoView({ block: 'center', inline: 'nearest' });
+    input.focus();
+    return document.activeElement === input;
   }
 
   async function fillTaskForm() {
@@ -825,15 +1154,8 @@
     while (!fieldContainer(/Bộ phận phát hiện/i) && Date.now() - formReadyStarted < 15000) {
       await new Promise((resolve) => setTimeout(resolve, 200));
     }
-    const detectedOk = await chooseTaskCombobox(/Bộ phận phát hiện/i, FIXED_DETECTED_HUB);
-    let responsibleOk = true;
-    if (pending.templateItem.responsibleRule) {
-      const hub = pending.responsibleHub || taskHubForRule(pending.templateItem.responsibleRule, {
-        ...trackingForOrder(pending.orderCode), orderCode: pending.orderCode
-      });
-      responsibleOk = hub ? await chooseTaskCombobox(/Bộ phận chịu trách nhiệm/i, hub) : false;
-    }
-
+    const contentControl = taskTextControl(/Nội dung yêu cầu/i, /Nhập nội dung yêu cầu/i);
+    const contentOk = nativeSet(contentControl, pending.content);
     const orderControl = taskTextControl(/(Mã đơn hàng|Danh sách đơn hàng)/i, /(Nhập mã đơn hàng|Ví dụ:)/i);
     const orderOk = nativeSet(orderControl, pending.orderCode);
     await new Promise((resolve) => setTimeout(resolve, 150));
@@ -843,6 +1165,25 @@
       mouseActivate(addOrderButton);
       await new Promise((resolve) => setTimeout(resolve, 250));
     }
+    const detectedOk = await chooseTaskCombobox(/Bộ phận phát hiện/i, FIXED_DETECTED_HUB);
+    let responsibleOk = true;
+    if (pending.templateItem.responsibleRule) {
+      const hub = pending.responsibleHub || taskHubForRule(pending.templateItem.responsibleRule, {
+        ...trackingForOrder(pending.orderCode), orderCode: pending.orderCode
+      });
+      responsibleOk = hub ? await chooseTaskCombobox(/Bộ phận chịu trách nhiệm/i, hub) : false;
+    }
+    const personRequiredTypes = new Set([
+      normalizeChoice('Sai quy trình đơn hàng giao 1 phần'),
+      normalizeChoice('Người nhận khiếu nại chưa nhận được hàng'),
+      normalizeChoice('Người gửi khiếu nại chưa nhận được hàng trả')
+    ]);
+    const personRequired = personRequiredTypes.has(normalizeChoice(pending.templateItem.incidentLabel));
+    let responsiblePersonPrepared = !personRequired;
+    let responsibleOperatorId = '';
+    if (personRequired) {
+      responsibleOperatorId = pending.lastOperatorId || operatorForOrder(pending.orderCode).lastOperatorId || '';
+    }
 
     const amountControl = taskTextControl(/Nhập số tiền/i, /Nhập số tiền/i);
     const taskTracking = trackingForOrder(pending.orderCode);
@@ -850,9 +1191,12 @@
       ? (taskTracking.declaredValue || '')
       : (taskTracking.declaredValue || taskTracking.serviceFee || '');
     if (amountControl && amountValue) nativeSet(amountControl, amountValue);
-    const contentControl = taskTextControl(/Nội dung yêu cầu/i, /Nhập nội dung yêu cầu/i);
-    const contentOk = nativeSet(contentControl, pending.content);
-
+    if (personRequired && responsibleOperatorId) {
+      responsiblePersonPrepared = await prepareTaskComboboxPaste(
+        /^(Nhân viên|Người) chịu trách nhiệm/i,
+        responsibleOperatorId
+      );
+    }
     const updateSubmitted = () => {
       const current = GM_getValue(PENDING_TASK_KEY, pending);
       GM_setValue(PENDING_TASK_KEY, { ...current, submittedAt: new Date().toISOString() });
@@ -860,7 +1204,10 @@
     [...document.querySelectorAll('button')]
       .filter((button) => clean(button.textContent) === 'Tạo phiếu')
       .forEach((button) => button.addEventListener('click', updateSubmitted, { once: true }));
-    toast(`Đã điền form task: mã đơn ${orderOk ? 'OK' : 'cần kiểm tra'}; bộ phận phát hiện ${detectedOk ? 'OK' : 'cần kiểm tra'}; bộ phận chịu trách nhiệm ${responsibleOk ? 'OK' : 'cần kiểm tra'}; nội dung ${contentOk ? 'OK' : 'cần kiểm tra'}. Hãy kiểm tra và tự bấm Tạo phiếu.`);
+    const personStatus = responsiblePersonPrepared
+      ? `mã ${responsibleOperatorId} đã sao chép, nhấn Ctrl+V rồi Enter`
+      : (responsibleOperatorId ? `hãy click ô NV rồi dán mã ${responsibleOperatorId}` : 'chưa có mã từ tra cứu');
+    toast(`Task: mã đơn ${orderOk ? 'OK' : 'kiểm tra'} · bộ phận ${detectedOk && responsibleOk ? 'OK' : 'kiểm tra'}${personRequired ? ` · nhân viên ${personStatus}` : ''} · nội dung ${contentOk ? 'OK' : 'kiểm tra'}`);
   }
 
   async function chooseOwnerInDialog(ownerId, ownerName) {
@@ -908,14 +1255,28 @@
   }
 
   async function handleCreatedTaskDetail() {
-    const pending = GM_getValue(PENDING_TASK_KEY, null);
-    if (!pending?.templateItem) return;
-    const preparedAt = new Date(pending.submittedAt || pending.preparedAt || '').getTime();
-    if (!Number.isFinite(preparedAt) || Date.now() - preparedAt > 60 * 60 * 1000) return;
     const taskId = location.pathname.match(/\/ghn-ticket\/detail\/(\d+)/)?.[1] || '';
     if (!taskId) return;
+    const actualOrderCode = await orderCodeFromTaskDetail();
+    if (!actualOrderCode) {
+      toast('Không lưu link Task: chưa đọc được mã đơn trong nội dung task.');
+      return;
+    }
+    let tabContext = null;
+    try { tabContext = JSON.parse(sessionStorage.getItem(TASK_TAB_CONTEXT_KEY) || 'null'); } catch (_) {}
+    const pending = [tabContext, ...recentPendingTasks()]
+      .filter((item) => clean(item?.orderCode).toUpperCase() === actualOrderCode)
+      .filter((item) => !item.completedAt || !item.taskId || item.taskId === taskId)[0] || null;
     const taskUrl = location.href;
-    saveTaskLink(pending.orderCode, taskId, taskUrl);
+    saveTaskLink(actualOrderCode, taskId, taskUrl);
+    if (!pending?.templateItem) {
+      save({ orderCode: actualOrderCode, taskId, taskUrl });
+      toast(`Đã nhận và lưu link Task ${taskId} cho đơn ${actualOrderCode}.`);
+      return;
+    }
+    const preparedAt = new Date(pending.submittedAt || pending.preparedAt || '').getTime();
+    if (!Number.isFinite(preparedAt) || Date.now() - preparedAt > 60 * 60 * 1000) return;
+    saveTaskLink(actualOrderCode, taskId, taskUrl);
     save({ taskId, taskUrl });
     let assignedToMe = false;
     const currentBeforeAssign = GM_getValue(PENDING_TASK_KEY, pending);
@@ -947,7 +1308,19 @@
       assignedToMe,
       completedAt: new Date().toISOString()
     });
-    toast(`Đã lưu link Task cho đơn ${pending.orderCode} để dùng cho eForm; Gán cho tôi: ${assignedToMe ? 'OK' : 'cần kiểm tra'}. Tool không ghi chú vào ticket.`);
+    rememberPendingTask({
+      ...current,
+      taskId,
+      taskUrl,
+      assignedToMe,
+      completedAt: new Date().toISOString()
+    });
+    try {
+      sessionStorage.setItem(TASK_TAB_CONTEXT_KEY, JSON.stringify({
+        ...pending, taskId, taskUrl, completedAt: new Date().toISOString()
+      }));
+    } catch (_) {}
+    toast(`Đã lưu link Task đúng mã đơn ${pending.orderCode} để dùng cho eForm.`);
   }
 
   async function writeTaskLinkToSourceTicket() {
@@ -1052,13 +1425,19 @@
     if (!box) {
       box = document.createElement('div');
       box.id = 'ghn-auto-fill-toast';
-      Object.assign(box.style, { position: 'fixed', right: '14px', top: '14px', zIndex: 999999, maxWidth: '320px', padding: '8px 11px', borderRadius: '7px', color: '#fff', background: '#d76632', boxShadow: '0 3px 12px #0003', font: '13px/1.35 Arial', pointerEvents: 'none' });
+      Object.assign(box.style, {
+        position: 'fixed', right: '14px', top: '14px', zIndex: 999999,
+        width: 'auto', maxWidth: '280px', maxHeight: '72px', overflow: 'hidden',
+        padding: '7px 10px', borderRadius: '7px', color: '#fff', background: '#d76632',
+        boxShadow: '0 3px 12px #0003', font: '12px/1.35 Arial', pointerEvents: 'none'
+      });
       document.body.appendChild(box);
     }
-    box.textContent = message;
+    const shortMessage = String(message || '');
+    box.textContent = shortMessage.length > 180 ? `${shortMessage.slice(0, 177)}…` : shortMessage;
     box.style.display = 'block';
     clearTimeout(toast.hideTimer);
-    toast.hideTimer = setTimeout(() => { box.style.display = 'none'; }, 6500);
+    toast.hideTimer = setTimeout(() => { box.style.display = 'none'; }, 4000);
   }
 
   function addButton(text, onClick, bottomOffset = 12) {
@@ -1270,7 +1649,14 @@
   if (location.hostname === 'tracuunoibo.ghn.vn') {
     addButton('🔎 Lưu tra cứu', () => captureTrackingData({ wait: false, showFailure: true }));
     captureTrackingData({ wait: true, showFailure: false });
+    watchTrackingHistory();
   } else if (location.pathname.startsWith('/ghn-ticket/create-ticket')) {
+    const pending = GM_getValue(PENDING_TASK_KEY, null);
+    const pendingAge = Date.now() - new Date(pending?.preparedAt || 0).getTime();
+    const currentType = new URLSearchParams(location.search).get('type') || '';
+    if (pending?.templateItem?.incidentType === currentType && pendingAge >= 0 && pendingAge < 60 * 60 * 1000) {
+      try { sessionStorage.setItem(TASK_TAB_CONTEXT_KEY, JSON.stringify(pending)); } catch (_) {}
+    }
     addButton('⚡ Điền task', fillTaskForm);
     setTimeout(fillTaskForm, 700);
   } else if (/^\/ghn-ticket\/cs\/detail\//.test(location.pathname)) {
