@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         GHN - eForm đền bù & Task sự cố
 // @namespace    codex.ghn.internal
-// @version      2.6.11
+// @version      2.6.13
 // @description  Lấy dữ liệu ticket/tracuunoibo, tự điền eForm và form Task sự cố GHN; không tự tạo phiếu.
 // @homepageURL  https://github.com/MyTran1806/EFORM-AUTO
 // @updateURL    https://raw.githubusercontent.com/MyTran1806/EFORM-AUTO/main/ghn-eform-auto-fill.user.js
@@ -1255,6 +1255,63 @@
     return false;
   }
 
+  function watchTaskCreationSuccess() {
+    let openingCreatedTask = false;
+    document.addEventListener('click', (event) => {
+      const button = event.target?.closest?.('button');
+      if (!button || clean(button.textContent) !== 'Tạo phiếu') return;
+      const pending = GM_getValue(PENDING_TASK_KEY, null);
+      if (!pending?.templateItem) return;
+      const updated = { ...pending, submittedAt: new Date().toISOString() };
+      GM_setValue(PENDING_TASK_KEY, updated);
+      rememberPendingTask(updated);
+      try { sessionStorage.setItem(TASK_TAB_CONTEXT_KEY, JSON.stringify(updated)); } catch (_) {}
+    }, true);
+    const openCreatedTask = () => {
+      if (openingCreatedTask) return;
+      const successText = [...document.querySelectorAll('h1, h2, h3, div, span')]
+        .some((node) => node.children.length === 0 && clean(node.textContent) === 'Tạo phiếu thành công');
+      if (!successText) return;
+      const viewButton = [...document.querySelectorAll('button, [role="button"]')]
+        .find((button) => clean(button.textContent) === 'Xem phiếu vừa tạo' && button.getClientRects().length > 0);
+      if (!viewButton) return;
+      openingCreatedTask = true;
+      mouseActivate(viewButton);
+    };
+    const observer = new MutationObserver(openCreatedTask);
+    observer.observe(document.documentElement, { childList: true, subtree: true });
+    openCreatedTask();
+  }
+
+  function visibleAssignToMeButton() {
+    const exactText = [...document.querySelectorAll('button, [role="button"], a, span, div')]
+      .find((node) => node.children.length === 0 && clean(node.textContent) === 'Gán cho tôi'
+        && node.getClientRects().length > 0);
+    return exactText?.closest('button, [role="button"], a') || exactText || null;
+  }
+
+  async function assignCurrentTaskToMe() {
+    const started = Date.now();
+    while (Date.now() - started < 30000) {
+      const assignButton = visibleAssignToMeButton();
+      if (assignButton) {
+        mouseActivate(assignButton);
+        const verifyStarted = Date.now();
+        while (Date.now() - verifyStarted < 10000) {
+          if (!visibleAssignToMeButton()) return true;
+          await new Promise((resolve) => setTimeout(resolve, 250));
+        }
+      } else {
+        const handlerLabel = [...document.querySelectorAll('div, span, p')]
+          .find((node) => node.children.length === 0 && clean(node.textContent) === 'Người xử lý');
+        const pageText = clean(document.body?.innerText);
+        if (handlerLabel && !/Chưa có người xử lý/i.test(pageText)) return true;
+      }
+      await new Promise((resolve) => setTimeout(resolve, 300));
+    }
+    return false;
+  }
+
   async function handleCreatedTaskDetail() {
     const taskId = location.pathname.match(/\/ghn-ticket\/detail\/(\d+)/)?.[1] || '';
     if (!taskId) return;
@@ -1280,33 +1337,19 @@
     saveTaskLink(actualOrderCode, taskId, taskUrl);
     save({ taskId, taskUrl });
     let assignedToMe = false;
-    const currentBeforeAssign = GM_getValue(PENDING_TASK_KEY, pending);
-    if (!currentBeforeAssign.assignToMeAttemptedAt) {
-      GM_setValue(PENDING_TASK_KEY, {
-        ...currentBeforeAssign,
-        taskId,
-        taskUrl,
-        assignToMeAttemptedAt: new Date().toISOString()
-      });
-      const assignStarted = Date.now();
-      let assignToMe = null;
-      while (!assignToMe && Date.now() - assignStarted < 15000) {
-        const exactText = [...document.querySelectorAll('button, [role="button"], a, span, div')]
-          .find((node) => node.children.length === 0 && clean(node.textContent) === 'Gán cho tôi');
-        assignToMe = exactText?.closest('button, [role="button"], a') || exactText || null;
-        if (!assignToMe) await new Promise((resolve) => setTimeout(resolve, 200));
-      }
-      if (assignToMe) {
-        mouseActivate(assignToMe);
-        assignedToMe = true;
-      }
-    }
+    const storedPending = GM_getValue(PENDING_TASK_KEY, pending);
+    const currentBeforeAssign = clean(storedPending?.orderCode).toUpperCase() === actualOrderCode
+      ? storedPending
+      : pending;
+    if (!currentBeforeAssign.assignedToMe) assignedToMe = await assignCurrentTaskToMe();
+    else assignedToMe = true;
     const current = GM_getValue(PENDING_TASK_KEY, pending);
     GM_setValue(PENDING_TASK_KEY, {
       ...current,
       taskId,
       taskUrl,
       assignedToMe,
+      assignToMeCompletedAt: assignedToMe ? new Date().toISOString() : '',
       completedAt: new Date().toISOString()
     });
     rememberPendingTask({
@@ -1314,6 +1357,7 @@
       taskId,
       taskUrl,
       assignedToMe,
+      assignToMeCompletedAt: assignedToMe ? new Date().toISOString() : '',
       completedAt: new Date().toISOString()
     });
     try {
@@ -1321,7 +1365,25 @@
         ...pending, taskId, taskUrl, completedAt: new Date().toISOString()
       }));
     } catch (_) {}
-    toast(`Đã lưu link Task đúng mã đơn ${pending.orderCode} để dùng cho eForm.`);
+    toast(`Đã lưu link Task đúng mã đơn ${pending.orderCode}; Gán cho tôi: ${assignedToMe ? 'OK' : 'chưa thành công'}.`);
+  }
+
+  let taskDetailWatcherStarted = false;
+  let handledTaskDetailPath = '';
+  function watchTaskDetailNavigation() {
+    if (taskDetailWatcherStarted) return;
+    taskDetailWatcherStarted = true;
+    const check = () => {
+      const match = location.pathname.match(/^\/ghn-ticket\/detail\/(\d+)/);
+      if (!match || location.pathname === handledTaskDetailPath) return;
+      handledTaskDetailPath = location.pathname;
+      handleCreatedTaskDetail().catch(() => {
+        handledTaskDetailPath = '';
+      });
+    };
+    check();
+    setInterval(check, 300);
+    window.addEventListener('popstate', check);
   }
 
   async function writeTaskLinkToSourceTicket() {
@@ -1658,6 +1720,8 @@
     if (pending?.templateItem?.incidentType === currentType && pendingAge >= 0 && pendingAge < 60 * 60 * 1000) {
       try { sessionStorage.setItem(TASK_TAB_CONTEXT_KEY, JSON.stringify(pending)); } catch (_) {}
     }
+    watchTaskCreationSuccess();
+    watchTaskDetailNavigation();
     addButton('⚡ Điền task', fillTaskForm);
     setTimeout(fillTaskForm, 700);
   } else if (/^\/ghn-ticket\/cs\/detail\//.test(location.pathname)) {
@@ -1675,7 +1739,7 @@
     ];
     addTicketActionBar(ticketActions);
   } else if (/^\/ghn-ticket\/detail\//.test(location.pathname)) {
-    handleCreatedTaskDetail();
+    watchTaskDetailNavigation();
   } else if (location.pathname === '/eform/form/create') {
     if (location.pathname === '/eform/form/create' && !new URLSearchParams(location.search).get('flowId')) {
       addEformModeBar();
