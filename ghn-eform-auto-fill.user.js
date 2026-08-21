@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         GHN - eForm đền bù & Task sự cố
 // @namespace    codex.ghn.internal
-// @version      2.6.13
+// @version      2.6.15
 // @description  Lấy dữ liệu ticket/tracuunoibo, tự điền eForm và form Task sự cố GHN; không tự tạo phiếu.
 // @homepageURL  https://github.com/MyTran1806/EFORM-AUTO
 // @updateURL    https://raw.githubusercontent.com/MyTran1806/EFORM-AUTO/main/ghn-eform-auto-fill.user.js
@@ -1727,11 +1727,11 @@
   } else if (/^\/ghn-ticket\/cs\/detail\//.test(location.pathname)) {
     const ticketActions = [
       {
-        label: '💾 Lưu ticket',
+        label: '💾 EF đền bù',
         onClick: () => {
           const data = ticketData();
           save(data);
-          toast(`Đã lưu ticket ${data.fdCode || ''} / đơn ${data.orderCode || ''}. Mở trang tra cứu đơn để lấy tiếp thông tin tiền.`);
+          location.href = `${location.origin}/eform/form/create`;
         },
         background: '#2563eb'
       },
