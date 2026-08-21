@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         GHN - eForm đền bù & Task sự cố
 // @namespace    codex.ghn.internal
-// @version      2.6.15
+// @version      2.6.16
 // @description  Lấy dữ liệu ticket/tracuunoibo, tự điền eForm và form Task sự cố GHN; không tự tạo phiếu.
 // @homepageURL  https://github.com/MyTran1806/EFORM-AUTO
 // @updateURL    https://raw.githubusercontent.com/MyTran1806/EFORM-AUTO/main/ghn-eform-auto-fill.user.js
@@ -1731,7 +1731,7 @@
         onClick: () => {
           const data = ticketData();
           save(data);
-          location.href = `${location.origin}/eform/form/create`;
+          window.open(`${location.origin}/eform/form/create`, '_blank', 'noopener');
         },
         background: '#2563eb'
       },
