@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         GHN - eForm đền bù & Task sự cố
 // @namespace    codex.ghn.internal
-// @version      2.6.16
+// @version      2.6.18
 // @description  Lấy dữ liệu ticket/tracuunoibo, tự điền eForm và form Task sự cố GHN; không tự tạo phiếu.
 // @homepageURL  https://github.com/MyTran1806/EFORM-AUTO
 // @updateURL    https://raw.githubusercontent.com/MyTran1806/EFORM-AUTO/main/ghn-eform-auto-fill.user.js
@@ -177,7 +177,7 @@
     while (Date.now() - started < 15000) {
       const pageText = clean(document.body?.innerText).toUpperCase();
       const explicit = pageText.match(/(?:^|[^A-Z0-9])(?:ĐH|DH|MĐ|MD|MÃ ĐƠN(?: HÀNG)?|MA DON(?: HANG)?)\s*[:_\-]?\s*([A-Z][A-Z0-9]{7,11})(?=$|[^A-Z0-9])/i)?.[1] || '';
-      const titleSuffix = pageText.match(/[_\-]\s*([A-Z](?=[A-Z0-9]{7,11}(?:\s|$))(?=[A-Z0-9]*\d)[A-Z0-9]{7,11})\s+(?:CS|DEAR)\b/i)?.[1] || '';
+      const titleSuffix = pageText.match(/[_\-]\s*([A-Z](?=[A-Z0-9]{7,11}(?:\s|$))(?=[A-Z0-9]*\d)[A-Z0-9]{7,11})\s+(?:CS|DEAR|ĐH|DH)\b/i)?.[1] || '';
       if (explicit || titleSuffix) return explicit || titleSuffix;
       await new Promise((resolve) => setTimeout(resolve, 250));
     }
@@ -1014,7 +1014,7 @@
     }
     save(sourceData);
     try {
-      const payload = await loadTaskTemplates(true);
+      const payload = await loadTaskTemplates(false);
       showTaskPicker(payload, sourceData);
     } catch (error) {
       toast(`Không tải được danh sách nguyên nhân: ${error.message}`);
