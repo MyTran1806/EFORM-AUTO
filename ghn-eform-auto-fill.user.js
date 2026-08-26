@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         GHN - eForm đền bù & Task sự cố
 // @namespace    codex.ghn.internal
-// @version      2.6.18
+// @version      2.6.20
 // @description  Lấy dữ liệu ticket/tracuunoibo, tự điền eForm và form Task sự cố GHN; không tự tạo phiếu.
 // @homepageURL  https://github.com/MyTran1806/EFORM-AUTO
 // @updateURL    https://raw.githubusercontent.com/MyTran1806/EFORM-AUTO/main/ghn-eform-auto-fill.user.js
@@ -177,7 +177,7 @@
     while (Date.now() - started < 15000) {
       const pageText = clean(document.body?.innerText).toUpperCase();
       const explicit = pageText.match(/(?:^|[^A-Z0-9])(?:ĐH|DH|MĐ|MD|MÃ ĐƠN(?: HÀNG)?|MA DON(?: HANG)?)\s*[:_\-]?\s*([A-Z][A-Z0-9]{7,11})(?=$|[^A-Z0-9])/i)?.[1] || '';
-      const titleSuffix = pageText.match(/[_\-]\s*([A-Z](?=[A-Z0-9]{7,11}(?:\s|$))(?=[A-Z0-9]*\d)[A-Z0-9]{7,11})\s+(?:CS|DEAR|ĐH|DH)\b/i)?.[1] || '';
+      const titleSuffix = pageText.match(/[_\-]\s*([A-Z](?=[A-Z0-9]{7,11}(?:[_\-\s]|$))(?=[A-Z0-9]*\d)[A-Z0-9]{7,11})(?:[_\-][A-Z]{1,4})?\s+(?:CS|DEAR|ĐH|DH)\b/i)?.[1] || '';
       if (explicit || titleSuffix) return explicit || titleSuffix;
       await new Promise((resolve) => setTimeout(resolve, 250));
     }
@@ -804,7 +804,8 @@
       .replace(/#ma_don_hang/gi, data.orderCode || '')
       .replace(/#ticket_id/gi, data.ticketId || '')
       .replace(/#ten_nhan_vien/gi, data.ticketOwnerName || '')
-      .replace(/#ma_nhan_vien/gi, data.ticketOwnerId || '');
+      .replace(/#ma_nhan_vien/gi, data.ticketOwnerId || '')
+      .replace(/#gia_tri_den_bu/gi, data.compensationValue || '#gia_tri_den_bu');
     // Dữ liệu JSON cũ từng bị dồn thành một dòng: khôi phục bố cục chuẩn của Sheet.
     if (!content.includes('\n')) {
       content = content
@@ -1192,6 +1193,25 @@
       ? (taskTracking.declaredValue || '')
       : (taskTracking.declaredValue || taskTracking.serviceFee || '');
     if (amountControl && amountValue) nativeSet(amountControl, amountValue);
+    if (amountControl && /#gia_tri_den_bu/i.test(pending.templateItem.template || '')) {
+      const syncCompensationValue = () => {
+        const compensationValue = String(amountControl.value || '').trim();
+        const content = replaceTaskTemplate(pending.templateItem.template, {
+          ...pending,
+          compensationValue
+        });
+        nativeSet(contentControl, content);
+        const current = GM_getValue(PENDING_TASK_KEY, pending);
+        GM_setValue(PENDING_TASK_KEY, { ...current, compensationValue, content });
+      };
+      if (!amountControl.dataset.ghnCompensationSync) {
+        amountControl.dataset.ghnCompensationSync = '1';
+        amountControl.addEventListener('input', syncCompensationValue);
+        amountControl.addEventListener('change', syncCompensationValue);
+        amountControl.addEventListener('blur', syncCompensationValue);
+      }
+      syncCompensationValue();
+    }
     if (personRequired && responsibleOperatorId) {
       responsiblePersonPrepared = await prepareTaskComboboxPaste(
         /^(Nhân viên|Người) chịu trách nhiệm/i,
