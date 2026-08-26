@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         GHN - eForm đền bù & Task sự cố
 // @namespace    codex.ghn.internal
-// @version      2.6.20
+// @version      2.6.21
 // @description  Lấy dữ liệu ticket/tracuunoibo, tự điền eForm và form Task sự cố GHN; không tự tạo phiếu.
 // @homepageURL  https://github.com/MyTran1806/EFORM-AUTO
 // @updateURL    https://raw.githubusercontent.com/MyTran1806/EFORM-AUTO/main/ghn-eform-auto-fill.user.js
@@ -1045,6 +1045,20 @@
       .find((el) => el.getClientRects().length > 0 && placeholderPattern.test(el.placeholder || '')) || null;
   }
 
+  function taskOrderValue(orderCode) {
+    const targetCode = clean(orderCode).toUpperCase();
+    if (!targetCode) return '';
+    const rows = [...document.querySelectorAll('table tbody tr, [role="row"]')];
+    const row = rows.find((candidate) => {
+      const cells = [...candidate.querySelectorAll('td, [role="cell"]')];
+      return cells.some((cell) => clean(cell.textContent).toUpperCase() === targetCode);
+    });
+    if (!row) return '';
+    const valueCell = [...row.querySelectorAll('td, [role="cell"]')]
+      .find((cell) => /\d[\d.,\s]*\s*(?:đ|vnd)$/i.test(clean(cell.textContent)));
+    return clean(valueCell?.textContent || '');
+  }
+
   async function chooseTaskCombobox(labelPattern, target) {
     if (!target) return false;
     let container = null;
@@ -1193,9 +1207,11 @@
       ? (taskTracking.declaredValue || '')
       : (taskTracking.declaredValue || taskTracking.serviceFee || '');
     if (amountControl && amountValue) nativeSet(amountControl, amountValue);
-    if (amountControl && /#gia_tri_den_bu/i.test(pending.templateItem.template || '')) {
+    if (/#gia_tri_den_bu/i.test(pending.templateItem.template || '')) {
       const syncCompensationValue = () => {
-        const compensationValue = String(amountControl.value || '').trim();
+        const compensationValue = String(amountControl?.value || '').trim()
+          || taskOrderValue(pending.orderCode);
+        if (!compensationValue) return;
         const content = replaceTaskTemplate(pending.templateItem.template, {
           ...pending,
           compensationValue
@@ -1204,11 +1220,17 @@
         const current = GM_getValue(PENDING_TASK_KEY, pending);
         GM_setValue(PENDING_TASK_KEY, { ...current, compensationValue, content });
       };
-      if (!amountControl.dataset.ghnCompensationSync) {
+      if (amountControl && !amountControl.dataset.ghnCompensationSync) {
         amountControl.dataset.ghnCompensationSync = '1';
         amountControl.addEventListener('input', syncCompensationValue);
         amountControl.addEventListener('change', syncCompensationValue);
         amountControl.addEventListener('blur', syncCompensationValue);
+      }
+      const table = document.querySelector('table');
+      if (table && !table.dataset.ghnCompensationSync) {
+        table.dataset.ghnCompensationSync = '1';
+        new MutationObserver(syncCompensationValue)
+          .observe(table, { childList: true, subtree: true, characterData: true });
       }
       syncCompensationValue();
     }
