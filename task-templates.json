@@ -2,8 +2,8 @@
   "schemaVersion": 1,
   "sourceSheetId": "1B7-3E7QbVoDF39KRqzJ0AItzsxEJfE9SuWVjAO80Wxc",
   "sourceGid": "0",
-  "version": "20260811-141302",
-  "publishedAt": "2026-08-11T07:13:02.576Z",
+  "version": "20260826-115626",
+  "publishedAt": "2026-08-26T04:56:26.881Z",
   "items": [
     {
       "sheetRow": 2,
@@ -156,7 +156,7 @@
       "responsibleRule": "Kho giao",
       "incidentLabel": "Thu dư tiền khách hàng",
       "incidentType": "thu_du_tien",
-      "template": "SAI SOP_ GTB - TT_ #ma_don_hang\n\nDear all,\n\nCS tiếp nhận khiếu nại ĐH #ma_don_hang NN từ chối nhận hàng giao & có thanh toán cho NV <số tiền GTB - TT> tuy nhiên NV không thao tác GTB - TT để chuyển tiền thu về cho NG. Nhờ BC xác minh & phản hồi sự cố này trước deadline. Quá SLA không phản hồi, CS xử lí hoàn phí cho KH.\n\nThanks"
+      "template": "SAI SOP_ GTB - TT_ #ma_don_hang\n\nDear all,\n\nCS tiếp nhận khiếu nại ĐH #ma_don_hang NN từ chối nhận hàng giao & có thanh toán cho NV #gia_tri_den_bu tuy nhiên NV không thao tác GTB - TT để chuyển tiền thu về cho NG. Nhờ BC xác minh & phản hồi sự cố này trước deadline. Quá SLA không phản hồi, CS xử lí hoàn phí cho KH.\n\nThanks"
     },
     {
       "sheetRow": 19,
