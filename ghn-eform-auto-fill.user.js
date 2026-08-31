@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         GHN - eForm đền bù & Task sự cố
 // @namespace    codex.ghn.internal
-// @version      2.6.21
+// @version      2.6.23
 // @description  Lấy dữ liệu ticket/tracuunoibo, tự điền eForm và form Task sự cố GHN; không tự tạo phiếu.
 // @homepageURL  https://github.com/MyTran1806/EFORM-AUTO
 // @updateURL    https://raw.githubusercontent.com/MyTran1806/EFORM-AUTO/main/ghn-eform-auto-fill.user.js
@@ -1357,14 +1357,16 @@
   async function handleCreatedTaskDetail() {
     const taskId = location.pathname.match(/\/ghn-ticket\/detail\/(\d+)/)?.[1] || '';
     if (!taskId) return;
-    const actualOrderCode = await orderCodeFromTaskDetail();
+    const pendingFromContent = await pendingTaskForCurrentDetail(taskId);
+    const actualOrderCode = clean(pendingFromContent?.orderCode).toUpperCase()
+      || await orderCodeFromTaskDetail();
     if (!actualOrderCode) {
       toast('Không lưu link Task: chưa đọc được mã đơn trong nội dung task.');
       return;
     }
     let tabContext = null;
     try { tabContext = JSON.parse(sessionStorage.getItem(TASK_TAB_CONTEXT_KEY) || 'null'); } catch (_) {}
-    const pending = [tabContext, ...recentPendingTasks()]
+    const pending = pendingFromContent || [tabContext, ...recentPendingTasks()]
       .filter((item) => clean(item?.orderCode).toUpperCase() === actualOrderCode)
       .filter((item) => !item.completedAt || !item.taskId || item.taskId === taskId)[0] || null;
     const taskUrl = location.href;
@@ -1378,6 +1380,7 @@
     if (!Number.isFinite(preparedAt) || Date.now() - preparedAt > 60 * 60 * 1000) return;
     saveTaskLink(actualOrderCode, taskId, taskUrl);
     save({ taskId, taskUrl });
+    GM_setClipboard(taskUrl);
     let assignedToMe = false;
     const storedPending = GM_getValue(PENDING_TASK_KEY, pending);
     const currentBeforeAssign = clean(storedPending?.orderCode).toUpperCase() === actualOrderCode
@@ -1407,7 +1410,7 @@
         ...pending, taskId, taskUrl, completedAt: new Date().toISOString()
       }));
     } catch (_) {}
-    toast(`Đã lưu link Task đúng mã đơn ${pending.orderCode}; Gán cho tôi: ${assignedToMe ? 'OK' : 'chưa thành công'}.`);
+    toast(`Đã lưu và sao chép link Task đúng mã đơn ${pending.orderCode}; nhấn Ctrl+V để dán. Gán cho tôi: ${assignedToMe ? 'OK' : 'chưa thành công'}.`);
   }
 
   let taskDetailWatcherStarted = false;
