@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         GHN - eForm đền bù & Task sự cố
 // @namespace    codex.ghn.internal
-// @version      2.6.23
+// @version      2.6.25
 // @description  Lấy dữ liệu ticket/tracuunoibo, tự điền eForm và form Task sự cố GHN; không tự tạo phiếu.
 // @homepageURL  https://github.com/MyTran1806/EFORM-AUTO
 // @updateURL    https://raw.githubusercontent.com/MyTran1806/EFORM-AUTO/main/ghn-eform-auto-fill.user.js
@@ -26,6 +26,8 @@
   const TRACKING_CACHE_KEY = 'ghn_tracking_by_order_v1';
   const LAST_OPERATOR_BRIDGE_KEY = 'ghn_last_operator_bridge_v1';
   const TASK_LINK_CACHE_KEY = 'ghn_task_links_by_order_v1';
+  const EFORM_LINK_CACHE_KEY = 'ghn_eform_links_by_order_v1';
+  const PENDING_EFORM_KEY = 'ghn_pending_eform_v1';
   const PENDING_FILL_KEY = 'ghn_compensation_pending_fill_v1';
   const TASK_TEMPLATE_CACHE_KEY = 'ghn_task_templates_cache_v1';
   const PENDING_TASK_KEY = 'ghn_pending_task_v1';
@@ -134,6 +136,19 @@
     cache[code] = { orderCode: code, taskId, taskUrl, savedAt: new Date().toISOString() };
     GM_setValue(TASK_LINK_CACHE_KEY, cache);
     cleanTaskLinkCache();
+  }
+  function saveEformLink(orderCode, eformUrl, eformCode = '') {
+    const code = clean(orderCode).toUpperCase();
+    if (!code || !eformUrl) return;
+    const formCode = clean(eformCode).toUpperCase();
+    const cache = GM_getValue(EFORM_LINK_CACHE_KEY, {});
+    cache[code] = { orderCode: code, eformCode: formCode, eformUrl, savedAt: new Date().toISOString() };
+    const recent = Object.entries(cache)
+      .sort(([, left], [, right]) => String(right.savedAt || '').localeCompare(String(left.savedAt || '')))
+      .slice(0, 100);
+    GM_setValue(EFORM_LINK_CACHE_KEY, Object.fromEntries(recent));
+    const current = draft();
+    if (clean(current.orderCode).toUpperCase() === code) save({ eformCode: formCode, eformUrl });
   }
   function rememberPendingTask(pending) {
     const code = clean(pending?.orderCode).toUpperCase();
@@ -365,6 +380,7 @@
   async function captureTrackingData({ wait = true, showFailure = true } = {}) {
     const maxAttempts = wait ? 80 : 1;
     let taskDataAnnounced = false;
+    let basicDataAnnounced = false;
     for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
       const data = trackingData();
       const previous = draft();
@@ -392,13 +408,15 @@
       if (onHistoryTab && data.trackingOrderCode && data.lastOperatorId) {
         save(data);
         toast(`Đã lưu người thao tác cuối ${data.lastOperatorId} cho đơn ${data.trackingOrderCode}.`);
-        return true;
       }
       if (ready && (!onHistoryTab || data.lastOperatorId)) {
         save(data);
-        toast(`Đã tự lưu đầy đủ dữ liệu đơn ${data.trackingOrderCode}. Không cần bấm Lưu tra cứu.`);
-        return true;
+        if (!basicDataAnnounced) {
+          basicDataAnnounced = true;
+          toast(`Đã tự lưu thông tin đơn ${data.trackingOrderCode}; đang tiếp tục chờ dữ liệu kho.`);
+        }
       }
+      if (ready && taskReady && (!onHistoryTab || data.lastOperatorId)) return true;
       const partial = Object.fromEntries(Object.entries(data).filter(([, value]) => value !== '' && value != null));
       if (Object.keys(partial).length > 1) save(partial);
       await new Promise((resolve) => setTimeout(resolve, 250));
@@ -410,15 +428,27 @@
   function watchTrackingHistory() {
     let timer = 0;
     let lastSaved = '';
+    let lastHubSaved = '';
     const inspect = () => {
       const data = trackingData();
-      if (!data.trackingOrderCode || !data.lastOperatorId) return;
+      if (!data.trackingOrderCode) return;
+      const cachedBefore = trackingForOrder(data.trackingOrderCode);
+      saveTrackingRecord(data);
+      const hubSignature = `${data.trackingOrderCode}:${data.pickupHub}|${data.deliveryHub}|${data.currentHub}`;
+      const hubsReady = data.pickupHub && data.deliveryHub && data.currentHub;
+      const hubsChanged = cachedBefore.pickupHub !== data.pickupHub
+        || cachedBefore.deliveryHub !== data.deliveryHub
+        || cachedBefore.currentHub !== data.currentHub;
+      if (hubsReady && hubsChanged && hubSignature !== lastHubSaved) {
+        lastHubSaved = hubSignature;
+        toast(`Đã tự cập nhật dữ liệu kho của đơn ${data.trackingOrderCode}.`);
+      }
+      if (!data.lastOperatorId) return;
       const signature = `${data.trackingOrderCode}:${data.lastOperatorId}`;
       const cached = trackingForOrder(data.trackingOrderCode);
       if (signature === lastSaved && cached.lastOperatorId === data.lastOperatorId) return;
-      saveTrackingRecord(data);
       save(data);
-      if (signature !== lastSaved && cached.lastOperatorId !== data.lastOperatorId) {
+      if (signature !== lastSaved && cachedBefore.lastOperatorId !== data.lastOperatorId) {
         toast(`Đã lưu người thao tác cuối: ${data.lastOperatorId}.`);
       }
       lastSaved = signature;
@@ -430,6 +460,71 @@
     new MutationObserver(schedule).observe(document.body, { childList: true, subtree: true });
     setInterval(inspect, 1200);
     schedule();
+  }
+
+  function createdEformResult() {
+    const successNode = [...document.querySelectorAll('h1, h2, h3, div, span')]
+      .find((node) => node.children.length === 0 && /(?:tạo|gửi).*(?:eform|phiếu).*thành công/i.test(clean(node.textContent)));
+    const successContainer = successNode?.closest('[role="dialog"], .ant-modal, [class*="modal"], [class*="result"]')
+      || successNode?.parentElement;
+    const successLink = successContainer?.querySelector('a[href*="/eform/"]');
+    if (successLink?.href) {
+      const linkedUrl = new URL(successLink.href, location.origin);
+      const linkedCode = clean(linkedUrl.searchParams.get('code')).toUpperCase();
+      return { eformCode: linkedCode, eformUrl: linkedUrl.href };
+    }
+    if (!location.pathname.startsWith('/eform/') || location.pathname === '/eform/form/create') return null;
+    if (/\/(?:list|dashboard)(?:\/|$)/i.test(location.pathname)) return null;
+    const params = new URLSearchParams(location.search);
+    const eformCode = clean(params.get('code')).toUpperCase();
+    if (/^[A-Z0-9]{4,20}$/.test(eformCode)) {
+      return { eformCode, eformUrl: `${location.origin}${location.pathname}?code=${encodeURIComponent(eformCode)}` };
+    }
+    const hasIdentifier = /(?:^|\/)(?:[a-f0-9]{16,}|\d{6,})(?:\/|$)/i.test(location.pathname)
+      || ['id', 'formId', 'eformId', 'ticketId'].some((key) => clean(params.get(key)) !== '');
+    return hasIdentifier ? { eformCode: '', eformUrl: location.href } : null;
+  }
+
+  function watchEformCreationLink() {
+    document.addEventListener('click', (event) => {
+      const button = event.target?.closest?.('button, [role="button"]');
+      if (!button || clean(button.textContent) !== 'Hoàn tất') return;
+      const data = draft();
+      const orderCode = extractOrderCode(data.orderCode);
+      if (!orderCode) return;
+      GM_setValue(PENDING_EFORM_KEY, {
+        orderCode,
+        flowId: new URLSearchParams(location.search).get('flowId') || '',
+        submittedAt: new Date().toISOString()
+      });
+    }, true);
+    let savedUrl = '';
+    const inspect = () => {
+      const pending = GM_getValue(PENDING_EFORM_KEY, null);
+      if (!pending?.orderCode || pending.completedAt) return;
+      const submittedAt = new Date(pending.submittedAt || 0).getTime();
+      if (!Number.isFinite(submittedAt) || Date.now() - submittedAt > 60 * 60 * 1000) return;
+      const result = createdEformResult();
+      if (!result?.eformUrl || result.eformUrl === savedUrl) return;
+      savedUrl = result.eformUrl;
+      saveEformLink(pending.orderCode, result.eformUrl, result.eformCode);
+      const clipboardText = result.eformCode
+        ? `${result.eformCode} - ${result.eformUrl}`
+        : result.eformUrl;
+      GM_setClipboard(clipboardText, 'text');
+      GM_setValue(PENDING_EFORM_KEY, {
+        ...pending,
+        eformCode: result.eformCode,
+        eformUrl: result.eformUrl,
+        completedAt: new Date().toISOString()
+      });
+      toast(result.eformCode
+        ? `Đã lưu và sao chép: ${result.eformCode} - link eForm.`
+        : `Đã tự lưu và sao chép link eForm của đơn ${pending.orderCode}.`);
+    };
+    new MutationObserver(inspect).observe(document.documentElement, { childList: true, subtree: true });
+    setInterval(inspect, 500);
+    inspect();
   }
 
   function nativeSet(input, value) {
@@ -1752,6 +1847,10 @@
     });
 
     document.body.appendChild(bar);
+  }
+
+  if (location.hostname === 'noibo.ghn.vn' && location.pathname.startsWith('/eform/')) {
+    watchEformCreationLink();
   }
 
   if (location.hostname === 'tracuunoibo.ghn.vn') {
