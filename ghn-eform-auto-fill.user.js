@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         GHN - eForm đền bù & Task sự cố
 // @namespace    codex.ghn.internal
-// @version      2.8.0
+// @version      2.6.26
 // @description  Lấy dữ liệu ticket/tracuunoibo, tự điền eForm và form Task sự cố GHN; không tự tạo phiếu.
 // @homepageURL  https://github.com/MyTran1806/EFORM-AUTO
 // @updateURL    https://raw.githubusercontent.com/MyTran1806/EFORM-AUTO/main/ghn-eform-auto-fill.user.js
@@ -13,7 +13,6 @@
 // @grant        GM_setValue
 // @grant        GM_setClipboard
 // @grant        GM_xmlhttpRequest
-// @grant        GM_registerMenuCommand
 // @grant        unsafeWindow
 // @connect      raw.githubusercontent.com
 // @connect      api.github.com
@@ -34,53 +33,21 @@
   const PENDING_TASK_KEY = 'ghn_pending_task_v1';
   const PENDING_TASKS_KEY = 'ghn_pending_tasks_by_order_v1';
   const TASK_TAB_CONTEXT_KEY = 'ghn_task_tab_context_v1';
-  const DEBUG_LOG_KEY = 'ghn_auto_fill_debug_log_v1';
-  const GITHUB_REPO_RAW_BASE = 'https://raw.githubusercontent.com/MyTran1806/EFORM-AUTO';
-  const TASK_TEMPLATE_URL = `${GITHUB_REPO_RAW_BASE}/main/task-templates.json`;
+  const TASK_TEMPLATE_URL = 'https://raw.githubusercontent.com/MyTran1806/EFORM-AUTO/main/task-templates.json';
   const TASK_TEMPLATE_COMMIT_API = 'https://api.github.com/repos/MyTran1806/EFORM-AUTO/commits/main';
-  const BUSINESS_CONFIG_URL = `${GITHUB_REPO_RAW_BASE}/main/business-config.json`;
-  const BUSINESS_CONFIG_CACHE_KEY = 'ghn_business_config_cache_v1';
-  // Giá trị mặc định khi chưa tải được (hoặc chưa tạo) business-config.json trên GitHub.
-  // Cập nhật business-config.json trên repo để đổi nghiệp vụ (team/vùng/flow...) mà không cần phát hành lại script.
-  const DEFAULT_BUSINESS_CONFIG = {
-    schemaVersion: 1,
-    fixedDetectedHub: 'GPGPG004 - Customer Services B2C Team 03',
-    xuFlowId: '6859261bb7b131f75c445780',
-    cashFlowId: '6853db464368da4033bc2be6',
-    fixed: {
-      processGroup: 'Phòng Trải Nghiệm Khách Hàng (CX)',
-      process: 'XU - ĐỀN BÙ ĐƠN HÀNG THEO CHÍNH SÁCH',
-      csGroup: 'B2C',
-      b2cTeam: 'Vùng 3',
-      eformType: 'Cập nhật mới',
-      recovery: 'Không thu hồi',
-      partner: 'Không',
-      bankAccount: '1. Tài khoản mặc định'
-    },
-    personRequiredIncidentLabels: [
-      'Sai quy trình đơn hàng giao 1 phần',
-      'Người nhận khiếu nại chưa nhận được hàng',
-      'Người gửi khiếu nại chưa nhận được hàng trả'
-    ]
+  const FIXED_DETECTED_HUB = 'GPGPG004 - Customer Services B2C Team 03';
+  const XU_FLOW_ID = '6859261bb7b131f75c445780';
+  const CASH_FLOW_ID = '6853db464368da4033bc2be6';
+  const FIXED = {
+    processGroup: 'Phòng Trải Nghiệm Khách Hàng (CX)',
+    process: 'XU - ĐỀN BÙ ĐƠN HÀNG THEO CHÍNH SÁCH',
+    csGroup: 'B2C',
+    b2cTeam: 'Vùng 3',
+    eformType: 'Cập nhật mới',
+    recovery: 'Không thu hồi',
+    partner: 'Không',
+    bankAccount: '1. Tài khoản mặc định'
   };
-  function mergeBusinessConfig(target, payload) {
-    if (!payload) return;
-    if (payload.fixedDetectedHub) target.fixedDetectedHub = payload.fixedDetectedHub;
-    if (payload.xuFlowId) target.xuFlowId = payload.xuFlowId;
-    if (payload.cashFlowId) target.cashFlowId = payload.cashFlowId;
-    if (payload.fixed) Object.assign(target.fixed, payload.fixed);
-    if (Array.isArray(payload.personRequiredIncidentLabels) && payload.personRequiredIncidentLabels.length) {
-      target.personRequiredIncidentLabels = payload.personRequiredIncidentLabels;
-    }
-  }
-  function validBusinessConfigPayload(payload) {
-    return payload && payload.schemaVersion === 1 && payload.fixed
-      && (!('personRequiredIncidentLabels' in payload) || Array.isArray(payload.personRequiredIncidentLabels));
-  }
-  // Nạp mặc định trước (đồng bộ) rồi đè bằng bản cache gần nhất, để trang eForm có FIXED sẵn sàng ngay
-  // mà không phải chờ mạng; loadBusinessConfig() ở cuối file sẽ làm mới cache cho lần tải trang sau.
-  const businessConfig = JSON.parse(JSON.stringify(DEFAULT_BUSINESS_CONFIG));
-  mergeBusinessConfig(businessConfig, GM_getValue(BUSINESS_CONFIG_CACHE_KEY, null));
 
   const clean = (value) => String(value || '').replace(/\s+/g, ' ').trim();
   const normalizeChoice = (value) => clean(value)
@@ -97,18 +64,15 @@
     const normalizedRight = normalizeChoice(right);
     return normalizedLeft === normalizedRight || choiceSignature(left) === choiceSignature(right);
   };
-  const isPersonRequiredIncident = (incidentLabel) => businessConfig.personRequiredIncidentLabels
-    .map(normalizeChoice)
-    .includes(normalizeChoice(incidentLabel));
   const money = (value) => {
     const digits = clean(value).replace(/[^0-9]/g, '');
     return digits || '';
   };
   function extractOrderCode(value) {
     const text = String(value || '').toUpperCase();
-    return text.match(/(?:MÃ|MA)\s*(?:ĐƠN|DON)\s*(?:HÀNG|HANG)?\s*([A-Z][A-Z0-9]{7,11})/)?.[1]
-      || text.match(/MĐ\s*:\s*([A-Z][A-Z0-9]{7,11})/)?.[1]
-      || text.match(/\b([A-Z][A-Z0-9]{7,11})\b/)?.[1]
+    return text.match(/(?:MÃ|MA)\s*(?:ĐƠN|DON)\s*(?:HÀNG|HANG)?\s*([A-Z][A-Z0-9]{7,11}(?:_PR)?)(?![A-Z0-9_])/)?.[1]
+      || text.match(/MĐ\s*:\s*([A-Z][A-Z0-9]{7,11}(?:_PR)?)(?![A-Z0-9_])/)?.[1]
+      || text.match(/\b([A-Z][A-Z0-9]{7,11}(?:_PR)?)(?![A-Z0-9_])/)?.[1]
       || '';
   }
   const draft = () => GM_getValue(STORE_KEY, {});
@@ -227,8 +191,8 @@
     const started = Date.now();
     while (Date.now() - started < 15000) {
       const pageText = clean(document.body?.innerText).toUpperCase();
-      const explicit = pageText.match(/(?:^|[^A-Z0-9])(?:ĐH|DH|MĐ|MD|MÃ ĐƠN(?: HÀNG)?|MA DON(?: HANG)?)\s*[:_\-]?\s*([A-Z][A-Z0-9]{7,11})(?=$|[^A-Z0-9])/i)?.[1] || '';
-      const titleSuffix = pageText.match(/[_\-]\s*([A-Z](?=[A-Z0-9]{7,11}(?:[_\-\s]|$))(?=[A-Z0-9]*\d)[A-Z0-9]{7,11})(?:[_\-][A-Z]{1,4})?\s+(?:CS|DEAR|ĐH|DH)\b/i)?.[1] || '';
+      const explicit = pageText.match(/(?:^|[^A-Z0-9])(?:ĐH|DH|MĐ|MD|MÃ ĐƠN(?: HÀNG)?|MA DON(?: HANG)?)\s*[:_\-]?\s*([A-Z][A-Z0-9]{7,11}(?:_PR)?)(?=$|[^A-Z0-9_])/i)?.[1] || '';
+      const titleSuffix = pageText.match(/[_\-]\s*([A-Z](?=[A-Z0-9]{7,11}(?:_PR)?(?:[_\-\s]|$))(?=[A-Z0-9]*\d)[A-Z0-9]{7,11}(?:_PR)?)\s+(?:CS|DEAR|ĐH|DH)\b/i)?.[1] || '';
       if (explicit || titleSuffix) return explicit || titleSuffix;
       await new Promise((resolve) => setTimeout(resolve, 250));
     }
@@ -319,9 +283,9 @@
     const pageText = clean(document.body.innerText);
     const heading = [...document.querySelectorAll('div, span, h1, h2')]
       .map((el) => clean(el.textContent))
-      .find((text) => text.includes('KHIẾU NẠI') && /MĐ:\s*[A-Z0-9]+/i.test(text)) || '';
+      .find((text) => text.includes('KHIẾU NẠI') && /MĐ:\s*[A-Z0-9]+(?:_PR)?/i.test(text)) || '';
     const orderCode = extractOrderCode(valueBeside('Mã đơn hàng'))
-      || extractOrderCode(heading.match(/MĐ:\s*([A-Z0-9]+)/i)?.[1] || '');
+      || extractOrderCode(heading.match(/MĐ:\s*([A-Z0-9]+(?:_PR)?)/i)?.[1] || '');
     const clientId = valueBeside('Client ID').match(/\d+/)?.[0] || '';
     const complaintReason = valueBeside('Lý do Khiếu nại');
     const fdCode = heading.match(/\|\s*(\d{8,})\b/)?.[1] || pageText.match(/\b(\d{12})\b/)?.[1] || '';
@@ -394,7 +358,7 @@
     const trackingOrderCode = extractOrderCode(valueBeside('Mã đơn hàng'))
       || pageValue([/^Mã đơn hàng$/i, /^Mã đơn$/i])
       || query.get('order_code') || query.get('orderCode') || query.get('code')
-      || pageText.match(/\b[A-Z][A-Z0-9]{7}\b/)?.[0] || '';
+      || pageText.match(/\b[A-Z][A-Z0-9]{7,11}(?:_PR)?(?![A-Z0-9_])/)?.[0] || '';
     const account = valueBeside('Tài khoản:') || pageValue([/^Tài khoản$/i, /^Khách hàng$/i]);
     const accountMatch = account.match(/(\d+)\s*[-–]\s*(.+)/);
     const operator = lastOrderOperator();
@@ -692,7 +656,7 @@
     if (!amount || !cause || !complaint || !recovery || !contentControl) return false;
     const amountWithCurrency = /đ$/i.test(amount) ? amount : `${amount}đ`;
     const currentFlowId = new URLSearchParams(location.search).get('flowId') || '';
-    const vatText = currentFlowId === businessConfig.cashFlowId ? 'Có VAT/ 4l cước phí' : 'không VAT';
+    const vatText = currentFlowId === CASH_FLOW_ID ? 'Có VAT/ 4l cước phí' : 'không VAT';
     const content = `${recovery} - ${complaint} - ${cause} - ${vatText} - Sản phẩm: - ${amountWithCurrency}`;
     return contentControl.value === content || nativeSet(contentControl, content);
   }
@@ -795,9 +759,9 @@
   }
 
   async function applyFixedDefaults() {
-    const groupOk = await ensureChoice('nhom_cs', businessConfig.fixed.csGroup);
-    const teamOk = groupOk && await ensureChoice('team_b2c', businessConfig.fixed.b2cTeam);
-    const typeOk = teamOk && await ensureChoice('loai_eform', businessConfig.fixed.eformType);
+    const groupOk = await ensureChoice('nhom_cs', FIXED.csGroup);
+    const teamOk = groupOk && await ensureChoice('team_b2c', FIXED.b2cTeam);
+    const typeOk = teamOk && await ensureChoice('loai_eform', FIXED.eformType);
     return groupOk && teamOk && typeOk;
   }
 
@@ -806,7 +770,7 @@
     const safeOrderCode = extractOrderCode(baseDraft.orderCode);
     const data = { ...baseDraft, ...trackingForOrder(safeOrderCode), orderCode: safeOrderCode };
     const currentFlowId = new URLSearchParams(location.search).get('flowId') || '';
-    const isCashFlow = currentFlowId === businessConfig.cashFlowId;
+    const isCashFlow = currentFlowId === CASH_FLOW_ID;
     const filled = new Set();
     const set = (commands, label, value, labelPatterns) => {
       const control = firstControl(Array.isArray(commands) ? commands : [commands], labelPatterns);
@@ -847,9 +811,9 @@
     };
     fillTicketFields();
     const complaintChosen = await choose('loai_khieu_nai', data.complaintReason || '');
-    const recoveryChosen = await choose('thu_hoi', businessConfig.fixed.recovery);
-    const partnerChosen = await choose('doi_tac', businessConfig.fixed.partner);
-    const bankChosen = !isCashFlow || await ensureChoice('tai_khoan_ngan_hang_cua_khach_hang', businessConfig.fixed.bankAccount);
+    const recoveryChosen = await choose('thu_hoi', FIXED.recovery);
+    const partnerChosen = await choose('doi_tac', FIXED.partner);
+    const bankChosen = !isCashFlow || await ensureChoice('tai_khoan_ngan_hang_cua_khach_hang', FIXED.bankAccount);
     // Các dropdown có thể khiến React dựng lại form; điền lại lần cuối sau khi giao diện ổn định.
     await new Promise((resolve) => setTimeout(resolve, 400));
     fillTicketFields();
@@ -866,22 +830,7 @@
     ].filter(([, value]) => value === '' || value == null).map(([name]) => name);
     const choicesOk = defaultsOk && complaintChosen && recoveryChosen && partnerChosen && bankChosen;
     const linkSummary = taskLinkStatus === 'ok' ? 'OK' : taskLinkStatus === 'missing' ? 'chưa có' : 'cần kiểm tra';
-    const reasons = [];
-    if (!defaultsOk) reasons.push('chưa chọn được Nhóm CS/Team B2C/Loại eForm mặc định');
-    if (!complaintChosen) reasons.push(`chưa chọn được Loại khiếu nại "${data.complaintReason || '(trống)'}"`);
-    if (!recoveryChosen) reasons.push(`chưa chọn được Thu hồi "${businessConfig.fixed.recovery}"`);
-    if (!partnerChosen) reasons.push(`chưa chọn được Đối tác "${businessConfig.fixed.partner}"`);
-    if (!bankChosen) reasons.push(`chưa chọn được Tài khoản ngân hàng "${businessConfig.fixed.bankAccount}"`);
-    if (missing.length) reasons.push(`thiếu dữ liệu: ${missing.join(', ')}`);
-    if (taskLinkStatus === 'field-not-ready') reasons.push('ô Link FD/HRW/TASK không sẵn sàng trong 10s');
-    if (reasons.length) logDebug('fillEform', `eForm ${isCashFlow ? 'TIỀN MẶT' : 'XU'} cần kiểm tra`, reasons);
-    const summary = [
-      `eForm ${isCashFlow ? 'TIỀN MẶT' : 'XU'}: ${choicesOk ? 'OK' : 'cần kiểm tra'}`,
-      `Điền ${filled.size} ô`,
-      `Link TASK: ${linkSummary}`
-    ];
-    if (reasons.length) summary.push(`Lý do: ${reasons.join('; ')}`);
-    toast(summary.join(' · '));
+    toast(`eForm ${isCashFlow ? 'TIỀN MẶT' : 'XU'}: ${choicesOk ? 'OK' : 'cần kiểm tra'} · Điền ${filled.size} ô · Link TASK: ${linkSummary}${missing.length ? ` · Thiếu ${missing.length} mục` : ''}`);
   }
 
   function gmJson(url) {
@@ -910,20 +859,19 @@
       && payload.items.every((item) => item.reason && item.incidentType && item.incidentLabel && item.template);
   }
 
-  async function latestRawFileUrl(fileName, fallbackUrl) {
+  async function latestTaskTemplateUrl() {
     try {
       const commit = await gmJson(`${TASK_TEMPLATE_COMMIT_API}?v=${Date.now()}`);
       if (!commit?.sha) throw new Error('GitHub không trả về commit SHA');
       return {
-        url: `${GITHUB_REPO_RAW_BASE}/${commit.sha}/${fileName}?v=${Date.now()}`,
+        url: `https://raw.githubusercontent.com/MyTran1806/EFORM-AUTO/${commit.sha}/task-templates.json?v=${Date.now()}`,
         commitSha: commit.sha
       };
     } catch (error) {
-      const separator = fallbackUrl.includes('?') ? '&' : '?';
-      return { url: `${fallbackUrl}${separator}v=${Date.now()}`, commitSha: '' };
+      const separator = TASK_TEMPLATE_URL.includes('?') ? '&' : '?';
+      return { url: `${TASK_TEMPLATE_URL}${separator}v=${Date.now()}`, commitSha: '' };
     }
   }
-  const latestTaskTemplateUrl = () => latestRawFileUrl('task-templates.json', TASK_TEMPLATE_URL);
 
   async function loadTaskTemplates(force = false) {
     const cached = GM_getValue(TASK_TEMPLATE_CACHE_KEY, null);
@@ -941,22 +889,6 @@
         return cached;
       }
       throw error;
-    }
-  }
-
-  // Làm mới businessConfig (team/vùng, flow XU/TIỀN MẶT, bộ phận phát hiện mặc định, danh sách sự cố cần
-  // nhân viên chịu trách nhiệm) từ business-config.json trên GitHub. Trang hiện tại đã dùng bản mặc định/cache
-  // để chạy ngay; hàm này chỉ cập nhật cache cho lần tải trang kế tiếp, trừ khi gọi với force để áp dụng ngay.
-  async function loadBusinessConfig(force = false) {
-    try {
-      const latest = await latestRawFileUrl('business-config.json', BUSINESS_CONFIG_URL);
-      const payload = await gmJson(latest.url);
-      if (!validBusinessConfigPayload(payload)) throw new Error('Dữ liệu cấu hình không đúng cấu trúc');
-      GM_setValue(BUSINESS_CONFIG_CACHE_KEY, payload);
-      if (force) mergeBusinessConfig(businessConfig, payload);
-      return payload;
-    } catch (error) {
-      return null;
     }
   }
 
@@ -1132,7 +1064,11 @@
       const item = selectedItem();
       if (!item) return;
       const taskOperator = operatorForOrder(sourceData.orderCode);
-      const personRequired = isPersonRequiredIncident(item.incidentLabel);
+      const personRequired = new Set([
+        normalizeChoice('Sai quy trình đơn hàng giao 1 phần'),
+        normalizeChoice('Người nhận khiếu nại chưa nhận được hàng'),
+        normalizeChoice('Người gửi khiếu nại chưa nhận được hàng trả')
+      ]).has(normalizeChoice(item.incidentLabel));
       if (personRequired && taskOperator.lastOperatorId) {
         const employeeId = String(taskOperator.lastOperatorId).match(/\b\d{5,}\b/)?.[0] || '';
         if (employeeId) {
@@ -1340,7 +1276,7 @@
       mouseActivate(addOrderButton);
       await new Promise((resolve) => setTimeout(resolve, 250));
     }
-    const detectedOk = await chooseTaskCombobox(/Bộ phận phát hiện/i, businessConfig.fixedDetectedHub);
+    const detectedOk = await chooseTaskCombobox(/Bộ phận phát hiện/i, FIXED_DETECTED_HUB);
     let responsibleOk = true;
     if (pending.templateItem.responsibleRule) {
       const hub = pending.responsibleHub || taskHubForRule(pending.templateItem.responsibleRule, {
@@ -1348,7 +1284,12 @@
       });
       responsibleOk = hub ? await chooseTaskCombobox(/Bộ phận chịu trách nhiệm/i, hub) : false;
     }
-    const personRequired = isPersonRequiredIncident(pending.templateItem.incidentLabel);
+    const personRequiredTypes = new Set([
+      normalizeChoice('Sai quy trình đơn hàng giao 1 phần'),
+      normalizeChoice('Người nhận khiếu nại chưa nhận được hàng'),
+      normalizeChoice('Người gửi khiếu nại chưa nhận được hàng trả')
+    ]);
+    const personRequired = personRequiredTypes.has(normalizeChoice(pending.templateItem.incidentLabel));
     let responsiblePersonPrepared = !personRequired;
     let responsibleOperatorId = '';
     if (personRequired) {
@@ -1404,23 +1345,7 @@
     const personStatus = responsiblePersonPrepared
       ? `mã ${responsibleOperatorId} đã sao chép, nhấn Ctrl+V rồi Enter`
       : (responsibleOperatorId ? `hãy click ô NV rồi dán mã ${responsibleOperatorId}` : 'chưa có mã từ tra cứu');
-    const reasons = [];
-    if (!orderOk) reasons.push('chưa điền được ô Mã đơn hàng/Danh sách đơn hàng');
-    if (!contentOk) reasons.push('chưa điền được ô Nội dung yêu cầu');
-    if (!detectedOk) reasons.push(`chưa chọn được Bộ phận phát hiện "${businessConfig.fixedDetectedHub}"`);
-    if (pending.templateItem.responsibleRule && !responsibleOk) {
-      reasons.push(`chưa chọn được Bộ phận chịu trách nhiệm theo quy tắc "${pending.templateItem.responsibleRule}" (thiếu dữ liệu tra cứu đúng mã đơn?)`);
-    }
-    if (personRequired && !responsiblePersonPrepared) reasons.push('chưa mở/điền được ô Nhân viên chịu trách nhiệm');
-    if (reasons.length) logDebug('fillTaskForm', `Task "${pending.templateItem.incidentLabel}" cần kiểm tra`, reasons);
-    const summary = [
-      `Task: mã đơn ${orderOk ? 'OK' : 'kiểm tra'}`,
-      `bộ phận ${detectedOk && responsibleOk ? 'OK' : 'kiểm tra'}`
-    ];
-    if (personRequired) summary.push(`nhân viên ${personStatus}`);
-    summary.push(`nội dung ${contentOk ? 'OK' : 'kiểm tra'}`);
-    if (reasons.length) summary.push(`Lý do: ${reasons.join('; ')}`);
-    toast(summary.join(' · '));
+    toast(`Task: mã đơn ${orderOk ? 'OK' : 'kiểm tra'} · bộ phận ${detectedOk && responsibleOk ? 'OK' : 'kiểm tra'}${personRequired ? ` · nhân viên ${personStatus}` : ''} · nội dung ${contentOk ? 'OK' : 'kiểm tra'}`);
   }
 
   async function chooseOwnerInDialog(ownerId, ownerName) {
@@ -1718,35 +1643,6 @@
     toast.hideTimer = setTimeout(() => { box.style.display = 'none'; }, 4000);
   }
 
-  // Ghi lại lý do cụ thể khi một bước tự động thất bại, để tra cứu sau qua menu Tampermonkey
-  // "Xem log lỗi tự động điền" thay vì chỉ thấy toast "cần kiểm tra" thoáng qua.
-  function logDebug(scope, message, details) {
-    const entry = { at: new Date().toISOString(), scope, message, details: details || null, url: location.href };
-    const log = GM_getValue(DEBUG_LOG_KEY, []);
-    log.push(entry);
-    while (log.length > 30) log.shift();
-    GM_setValue(DEBUG_LOG_KEY, log);
-    console.warn(`[GHN-AUTO][${scope}] ${message}`, details || '');
-  }
-
-  function showDebugLog() {
-    const log = GM_getValue(DEBUG_LOG_KEY, []);
-    if (!log.length) {
-      toast('Chưa có log lỗi tự động điền nào được ghi.');
-      return;
-    }
-    const text = log.map((entry) => {
-      const detailText = Array.isArray(entry.details) ? entry.details.join('; ') : (entry.details || '');
-      return `[${entry.at}] (${entry.scope}) ${entry.message}${detailText ? ' — ' + detailText : ''}\n${entry.url}`;
-    }).join('\n\n');
-    GM_setClipboard(text, 'text');
-    toast(`Đã copy ${log.length} dòng log lỗi gần nhất vào clipboard.`);
-  }
-
-  if (typeof GM_registerMenuCommand === 'function') {
-    GM_registerMenuCommand('🪵 Xem log lỗi tự động điền (copy clipboard)', showDebugLog);
-  }
-
   function addButton(text, onClick, bottomOffset = 12) {
     const button = document.createElement('button');
     button.textContent = text;
@@ -1916,8 +1812,8 @@
       bar.appendChild(button);
     };
 
-    addMode('💵 TIỀN MẶT', businessConfig.cashFlowId, '#2563eb');
-    addMode('🟠 XU', businessConfig.xuFlowId, '#1d4ed8');
+    addMode('💵 TIỀN MẶT', CASH_FLOW_ID, '#2563eb');
+    addMode('🟠 XU', XU_FLOW_ID, '#1d4ed8');
 
     const positionKey = 'ghn_eform_mode_bar_position_v1';
     const saved = GM_getValue(positionKey, null);
@@ -1951,11 +1847,6 @@
     });
 
     document.body.appendChild(bar);
-  }
-
-  if (location.hostname === 'noibo.ghn.vn') {
-    // Làm mới ngầm business-config.json cho lần tải trang sau; trang hiện tại đã chạy với bản mặc định/cache.
-    loadBusinessConfig(false);
   }
 
   if (location.hostname === 'noibo.ghn.vn' && location.pathname.startsWith('/eform/')) {
@@ -1999,7 +1890,7 @@
       toast('Chọn nhanh 💵 TIỀN MẶT hoặc 🟠 XU trên thanh eForm. Dùng ký hiệu ↕ để di chuyển.');
     } else {
       const currentFlowId = new URLSearchParams(location.search).get('flowId') || '';
-      const isCashFlow = currentFlowId === businessConfig.cashFlowId;
+      const isCashFlow = currentFlowId === CASH_FLOW_ID;
       addButton(`⚡ Tự điền ${isCashFlow ? 'TIỀN MẶT' : 'XU'}`, fillEform);
       watchManualCompensationFields();
       const pendingFlow = GM_getValue(PENDING_FILL_KEY, false);
@@ -2009,7 +1900,7 @@
       } else {
         applyFixedDefaults().then((ok) => {
           if (ok) {
-            if (isCashFlow) ensureChoice('tai_khoan_ngan_hang_cua_khach_hang', businessConfig.fixed.bankAccount);
+            if (isCashFlow) ensureChoice('tai_khoan_ngan_hang_cua_khach_hang', FIXED.bankAccount);
             toast(`Đã chọn sẵn eForm ${isCashFlow ? 'TIỀN MẶT' : 'XU'}: B2C → Vùng 3 → Cập nhật mới${isCashFlow ? ' → 1. Tài khoản mặc định' : ''}.`);
           }
         });
