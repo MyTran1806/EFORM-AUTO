@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         GHN - eForm đền bù & Task sự cố
 // @namespace    codex.ghn.internal
-// @version      2.6.26
+// @version      2.6.33
 // @description  Lấy dữ liệu ticket/tracuunoibo, tự điền eForm và form Task sự cố GHN; không tự tạo phiếu.
 // @homepageURL  https://github.com/MyTran1806/EFORM-AUTO
 // @updateURL    https://raw.githubusercontent.com/MyTran1806/EFORM-AUTO/main/ghn-eform-auto-fill.user.js
@@ -289,10 +289,6 @@
     const clientId = valueBeside('Client ID').match(/\d+/)?.[0] || '';
     const complaintReason = valueBeside('Lý do Khiếu nại');
     const fdCode = heading.match(/\|\s*(\d{8,})\b/)?.[1] || pageText.match(/\b(\d{12})\b/)?.[1] || '';
-    const ownerText = valueBeside('Nhân viên phụ trách') || nearbyValue(/Nhân viên phụ trách/i)
-      || valueBeside('Người xử lý') || nearbyValue(/Người xử lý/i);
-    const ownerMatch = ownerText.match(/(?:^|\s)(\d{4,})\s*[-–]?\s*(.+)$/);
-    const ownerFallback = pageText.match(/Nhân viên phụ trách\s+(?:[A-Z0-9_]+\s+)?(\d{4,})\s+(.+?)\s+Loại\b/i);
     const ticketId = location.pathname.match(/\/cs\/detail\/(\d+)/)?.[1] || '';
     return {
       orderCode,
@@ -300,8 +296,6 @@
       complaintReason,
       fdCode,
       ticketId,
-      ticketOwnerId: ownerMatch?.[1] || ownerFallback?.[1] || '',
-      ticketOwnerName: clean(ownerMatch?.[2] || ownerFallback?.[2] || ''),
       ticketUrl: location.href
     };
   }
@@ -759,15 +753,18 @@
   }
 
   async function applyFixedDefaults() {
+    if (!(await waitForCommand('nhom_cs', 15000))) return false;
     const groupOk = await ensureChoice('nhom_cs', FIXED.csGroup);
-    const teamOk = groupOk && await ensureChoice('team_b2c', FIXED.b2cTeam);
-    const typeOk = teamOk && await ensureChoice('loai_eform', FIXED.eformType);
+    if (!groupOk || !(await waitForCommand('team_b2c', 10000))) return false;
+    const teamOk = await ensureChoice('team_b2c', FIXED.b2cTeam);
+    if (!teamOk || !(await waitForCommand('loai_eform', 10000))) return false;
+    const typeOk = await ensureChoice('loai_eform', FIXED.eformType);
     return groupOk && teamOk && typeOk;
   }
 
   async function fillEform() {
     const baseDraft = draft();
-    const safeOrderCode = extractOrderCode(baseDraft.orderCode);
+    const safeOrderCode = extractOrderCode(baseDraft.trackingOrderCode || baseDraft.orderCode);
     const data = { ...baseDraft, ...trackingForOrder(safeOrderCode), orderCode: safeOrderCode };
     const currentFlowId = new URLSearchParams(location.search).get('flowId') || '';
     const isCashFlow = currentFlowId === CASH_FLOW_ID;
@@ -777,8 +774,17 @@
       if (control?.getClientRects().length && nativeSet(control, value) && control.value === String(value)) filled.add(label);
     };
     const defaultsOk = await applyFixedDefaults();
-    await waitForCommand('ma_don_hang');
-    await new Promise((resolve) => setTimeout(resolve, 500));
+    if (!defaultsOk) {
+      toast('Chưa chọn được B2C → Vùng 3 → Cập nhật mới; hãy bấm nút tự điền để thử lại.');
+      return;
+    }
+    // Các trường thông tin đơn chỉ được React tạo sau khi chọn đủ ba dropdown trên.
+    const orderFieldsReady = await waitForCommand('ma_don_hang', 15000);
+    if (!orderFieldsReady) {
+      toast('Đã chọn đủ 3 trường đầu nhưng phần Thông tin đơn hàng chưa tải xong; hãy bấm nút tự điền để thử lại.');
+      return;
+    }
+    await new Promise((resolve) => setTimeout(resolve, 700));
     const fillTicketFields = () => {
       set(['ma_don_hang', 'ma_don'], 'Mã đơn hàng', data.orderCode, [/mã đơn hàng/i]);
       set(['id_khach_hang', 'client_id', 'ma_khach_hang'], 'ID Khách Hàng', data.clientId, [/id khách hàng/i, /client id/i]);
@@ -898,8 +904,6 @@
       .replace(/\\n/g, '\n')
       .replace(/#ma_don_hang/gi, data.orderCode || '')
       .replace(/#ticket_id/gi, data.ticketId || '')
-      .replace(/#ten_nhan_vien/gi, data.ticketOwnerName || '')
-      .replace(/#ma_nhan_vien/gi, data.ticketOwnerId || '')
       .replace(/#gia_tri_den_bu/gi, data.compensationValue || '#gia_tri_den_bu');
     // Dữ liệu JSON cũ từng bị dồn thành một dòng: khôi phục bố cục chuẩn của Sheet.
     if (!content.includes('\n')) {
@@ -1102,10 +1106,30 @@
     render();
   }
 
+  function latestTrackingTaskSource() {
+    const savedDraft = draft();
+    const orderCode = extractOrderCode(savedDraft.trackingOrderCode || '');
+    if (!orderCode) return null;
+    const tracking = trackingForOrder(orderCode);
+    if (clean(tracking.trackingOrderCode).toUpperCase() !== orderCode) return null;
+    const ticket = /^\/ghn-ticket\/cs\/detail\//.test(location.pathname) ? ticketData() : {};
+    const matchingTicket = clean(ticket.orderCode).toUpperCase() === orderCode ? ticket : {};
+    return {
+      ...tracking,
+      ...matchingTicket,
+      orderCode,
+      trackingOrderCode: orderCode,
+      ticketId: matchingTicket.ticketId || '',
+      ticketUrl: matchingTicket.ticketUrl || '',
+      fdCode: matchingTicket.fdCode || '',
+      complaintReason: matchingTicket.complaintReason || ''
+    };
+  }
+
   async function openTaskPicker() {
-    const sourceData = ticketData();
-    if (!sourceData.orderCode) {
-      toast('Không lấy được mã đơn trên ticket. Vui lòng kiểm tra ticket trước khi tạo task.');
+    const sourceData = latestTrackingTaskSource();
+    if (!sourceData?.orderCode) {
+      toast('Chưa có đơn từ trang tra cứu. Hãy mở tracuunoibo, tra đúng mã đơn và chờ tool báo đã lưu.');
       return;
     }
     save(sourceData);
@@ -1346,6 +1370,49 @@
       ? `mã ${responsibleOperatorId} đã sao chép, nhấn Ctrl+V rồi Enter`
       : (responsibleOperatorId ? `hãy click ô NV rồi dán mã ${responsibleOperatorId}` : 'chưa có mã từ tra cứu');
     toast(`Task: mã đơn ${orderOk ? 'OK' : 'kiểm tra'} · bộ phận ${detectedOk && responsibleOk ? 'OK' : 'kiểm tra'}${personRequired ? ` · nhân viên ${personStatus}` : ''} · nội dung ${contentOk ? 'OK' : 'kiểm tra'}`);
+  }
+
+  function autoFillTaskWhenReady() {
+    const started = Date.now();
+    const timer = setInterval(() => {
+      const pending = GM_getValue(PENDING_TASK_KEY, null);
+      const currentType = new URLSearchParams(location.search).get('type') || '';
+      const matchingTask = pending?.templateItem?.incidentType === currentType;
+      const formReady = fieldContainer(/Bộ phận phát hiện/i)
+        || exactLeaf('Tạo thủ công');
+      if (matchingTask && formReady) {
+        clearInterval(timer);
+        setTimeout(() => fillTaskForm(), 300);
+      } else if (Date.now() - started >= 30000) {
+        clearInterval(timer);
+        toast('Form task tải quá lâu; hãy bấm “Điền task” để chạy lại.');
+      }
+    }, 250);
+  }
+
+  function autoFillEformWhenReady(flowId) {
+    const started = Date.now();
+    const timer = setInterval(() => {
+      const pendingFlow = GM_getValue(PENDING_FILL_KEY, false);
+      const autoRequested = new URLSearchParams(location.search).get('ghn_autofill') === '1';
+      if (!autoRequested && pendingFlow !== true && pendingFlow !== flowId) {
+        clearInterval(timer);
+        return;
+      }
+      // Mã đơn chưa tồn tại ở bước này. Form chỉ dựng phần dưới sau khi chọn
+      // Nhóm CS → Team B2C → Loại Eform, vì vậy phải khởi chạy từ dropdown đầu.
+      const groupControl = firstControl(['nhom_cs'], [/nhóm cs/i]);
+      if (groupControl) {
+        clearInterval(timer);
+        GM_setValue(PENDING_FILL_KEY, false);
+        // fillEform đã tự chờ từng bước và tự điền lại các ô bị React dựng lại
+        // trong cùng một lượt; không chạy toàn bộ quy trình lần thứ hai.
+        setTimeout(() => fillEform(), 300);
+      } else if (Date.now() - started >= 30000) {
+        clearInterval(timer);
+        toast('eForm tải quá lâu; hãy bấm nút tự điền để chạy lại.');
+      }
+    }, 250);
   }
 
   async function chooseOwnerInDialog(ownerId, ownerName) {
@@ -1807,7 +1874,7 @@
       });
       button.addEventListener('click', () => {
         GM_setValue(PENDING_FILL_KEY, flowId);
-        location.href = `${location.origin}/eform/form/create?flowId=${flowId}`;
+        location.href = `${location.origin}/eform/form/create?flowId=${flowId}&ghn_autofill=1`;
       });
       bar.appendChild(button);
     };
@@ -1867,13 +1934,17 @@
     watchTaskCreationSuccess();
     watchTaskDetailNavigation();
     addButton('⚡ Điền task', fillTaskForm);
-    setTimeout(fillTaskForm, 700);
+    autoFillTaskWhenReady();
   } else if (/^\/ghn-ticket\/cs\/detail\//.test(location.pathname)) {
     const ticketActions = [
       {
         label: '💾 EF đền bù',
         onClick: () => {
-          const data = ticketData();
+          const data = latestTrackingTaskSource();
+          if (!data?.orderCode) {
+            toast('Chưa có đơn từ trang tra cứu. Hãy mở tracuunoibo, tra đúng mã đơn và chờ tool báo đã lưu.');
+            return;
+          }
           save(data);
           window.open(`${location.origin}/eform/form/create`, '_blank', 'noopener');
         },
@@ -1884,6 +1955,9 @@
     addTicketActionBar(ticketActions);
   } else if (/^\/ghn-ticket\/detail\//.test(location.pathname)) {
     watchTaskDetailNavigation();
+    addButton('🧾 Tạo task sự cố', openTaskPicker);
+  } else if (/^\/ghn-ticket(?:\/|$)/.test(location.pathname)) {
+    addButton('🧾 Tạo task sự cố', openTaskPicker);
   } else if (location.pathname === '/eform/form/create') {
     if (location.pathname === '/eform/form/create' && !new URLSearchParams(location.search).get('flowId')) {
       addEformModeBar();
@@ -1894,9 +1968,9 @@
       addButton(`⚡ Tự điền ${isCashFlow ? 'TIỀN MẶT' : 'XU'}`, fillEform);
       watchManualCompensationFields();
       const pendingFlow = GM_getValue(PENDING_FILL_KEY, false);
-      if (pendingFlow === true || pendingFlow === currentFlowId) {
-        GM_setValue(PENDING_FILL_KEY, false);
-        fillEform();
+      const autoRequested = new URLSearchParams(location.search).get('ghn_autofill') === '1';
+      if (autoRequested || pendingFlow === true || pendingFlow === currentFlowId) {
+        autoFillEformWhenReady(currentFlowId);
       } else {
         applyFixedDefaults().then((ok) => {
           if (ok) {
