@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         GHN - eForm đền bù & Task sự cố
 // @namespace    codex.ghn.internal
-// @version      2.6.33
+// @version      2.6.37
 // @description  Lấy dữ liệu ticket/tracuunoibo, tự điền eForm và form Task sự cố GHN; không tự tạo phiếu.
 // @homepageURL  https://github.com/MyTran1806/EFORM-AUTO
 // @updateURL    https://raw.githubusercontent.com/MyTran1806/EFORM-AUTO/main/ghn-eform-auto-fill.user.js
@@ -287,12 +287,18 @@
     const orderCode = extractOrderCode(valueBeside('Mã đơn hàng'))
       || extractOrderCode(heading.match(/MĐ:\s*([A-Z0-9]+(?:_PR)?)/i)?.[1] || '');
     const clientId = valueBeside('Client ID').match(/\d+/)?.[0] || '';
+    const customerName = valueBeside('Tên khách hàng') || valueBeside('Tên shop')
+      || pageValue([/^Tên khách hàng$/i, /^Tên shop$/i]);
     const complaintReason = valueBeside('Lý do Khiếu nại');
     const fdCode = heading.match(/\|\s*(\d{8,})\b/)?.[1] || pageText.match(/\b(\d{12})\b/)?.[1] || '';
     const ticketId = location.pathname.match(/\/cs\/detail\/(\d+)/)?.[1] || '';
     return {
       orderCode,
       clientId,
+      customerName: clean(customerName),
+      cod: money(valueBeside('Tiền thu hộ (COD)') || valueBeside('COD') || pageValue([/^Tiền thu hộ(?: \(COD\))?$/i, /^COD$/i])),
+      declaredValue: money(valueBeside('Giá trị đơn hàng') || valueBeside('Khai giá') || pageValue([/^Giá trị đơn hàng$/i, /^Khai giá$/i])),
+      serviceFee: money(valueBeside('Tổng phí dịch vụ') || valueBeside('Giá cước đơn hàng') || pageValue([/^Tổng phí dịch vụ$/i, /^Giá cước(?: đơn hàng)?$/i])),
       complaintReason,
       fdCode,
       ticketId,
@@ -349,15 +355,35 @@
   function trackingData() {
     const pageText = clean(document.body.innerText);
     const query = new URLSearchParams(location.search);
-    const trackingOrderCode = extractOrderCode(valueBeside('Mã đơn hàng'))
-      || pageValue([/^Mã đơn hàng$/i, /^Mã đơn$/i])
-      || query.get('order_code') || query.get('orderCode') || query.get('code')
-      || pageText.match(/\b[A-Z][A-Z0-9]{7,11}(?:_PR)?(?![A-Z0-9_])/)?.[0] || '';
+    const queryOrderCode = extractOrderCode(
+      query.get('order_code') || query.get('orderCode') || query.get('code') || ''
+    );
+    const domOrderCode = extractOrderCode(valueBeside('Mã đơn hàng'))
+      || extractOrderCode(pageValue([/^Mã đơn hàng$/i, /^Mã đơn$/i]));
+    const normalizedDomOrder = extractOrderCode(domOrderCode);
+    const trackingOrderCode = queryOrderCode || normalizedDomOrder;
+    // Khi SPA vừa đổi đơn, URL đã mang mã mới nhưng DOM vẫn còn nội dung đơn cũ.
+    // Nếu cấu trúc nhãn thay đổi, xác nhận trực tiếp chính mã trên URL có trong trang;
+    // không lấy một mã bất kỳ đầu tiên vì có thể nhầm mã kho/bộ phận.
+    const queryCodeVisible = queryOrderCode && new RegExp(
+      `(^|[^A-Z0-9_])${queryOrderCode.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}(?![A-Z0-9_])`,
+      'i'
+    ).test(pageText);
+    const pageReady = !queryOrderCode
+      || normalizedDomOrder === queryOrderCode
+      || (!normalizedDomOrder && queryCodeVisible);
+    if (!pageReady) return {
+      trackingOrderCode,
+      pageReady: false,
+      trackingUrl: location.href
+    };
     const account = valueBeside('Tài khoản:') || pageValue([/^Tài khoản$/i, /^Khách hàng$/i]);
     const accountMatch = account.match(/(\d+)\s*[-–]\s*(.+)/);
     const operator = lastOrderOperator();
     return {
       trackingOrderCode: extractOrderCode(trackingOrderCode),
+      pageReady: true,
+      capturedAt: new Date().toISOString(),
       clientId: accountMatch?.[1] || pageValue([/^Client ID$/i, /^Mã khách hàng$/i]).match(/\d+/)?.[0] || '',
       customerName: clean(accountMatch?.[2] || pageValue([/^Tên khách hàng$/i, /^Tên shop$/i])),
       cod: money(valueBeside('Tiền thu hộ (COD):') || pageValue([/^Tiền thu hộ(?: \(COD\))?$/i, /^COD$/i])),
@@ -426,6 +452,26 @@
     const inspect = () => {
       const data = trackingData();
       if (!data.trackingOrderCode) return;
+      const previous = draft();
+      const previousCode = clean(previous.trackingOrderCode || previous.orderCode).toUpperCase();
+      if (previousCode !== data.trackingOrderCode) {
+        // Chuyển ngay đơn đang dùng khi SPA Tra cứu đổi mã; không chờ tab lịch sử
+        // hoặc người thao tác cuối, nếu không eForm có thể tiếp tục dùng đơn cũ.
+        GM_setValue(STORE_KEY, {
+          ...previous,
+          orderCode: data.trackingOrderCode,
+          trackingOrderCode: data.trackingOrderCode,
+          clientId: '', customerName: '', cod: '', declaredValue: '', serviceFee: '',
+          pickupHub: '', deliveryHub: '', currentHub: '',
+          lastOperatorId: '', lastOperatorName: '',
+          trackingUrl: data.trackingUrl,
+          updatedAt: new Date().toISOString()
+        });
+      }
+      const currentValues = Object.fromEntries(
+        Object.entries(data).filter(([, value]) => value !== '' && value != null)
+      );
+      save({ ...currentValues, orderCode: data.trackingOrderCode });
       const cachedBefore = trackingForOrder(data.trackingOrderCode);
       saveTrackingRecord(data);
       const hubSignature = `${data.trackingOrderCode}:${data.pickupHub}|${data.deliveryHub}|${data.currentHub}`;
@@ -1112,17 +1158,23 @@
     if (!orderCode) return null;
     const tracking = trackingForOrder(orderCode);
     if (clean(tracking.trackingOrderCode).toUpperCase() !== orderCode) return null;
+    if (tracking.pageReady !== true) return null;
     const ticket = /^\/ghn-ticket\/cs\/detail\//.test(location.pathname) ? ticketData() : {};
     const matchingTicket = clean(ticket.orderCode).toUpperCase() === orderCode ? ticket : {};
+    // Ticket chỉ bổ sung dữ liệu có giá trị; không để chuỗi rỗng ghi đè dữ liệu
+    // đầy đủ đã lưu theo đúng mã đơn từ trang Tra cứu nội bộ.
+    const nonEmptyTicket = Object.fromEntries(
+      Object.entries(matchingTicket).filter(([, value]) => value !== '' && value != null)
+    );
     return {
       ...tracking,
-      ...matchingTicket,
+      ...nonEmptyTicket,
       orderCode,
       trackingOrderCode: orderCode,
-      ticketId: matchingTicket.ticketId || '',
-      ticketUrl: matchingTicket.ticketUrl || '',
-      fdCode: matchingTicket.fdCode || '',
-      complaintReason: matchingTicket.complaintReason || ''
+      ticketId: nonEmptyTicket.ticketId || '',
+      ticketUrl: nonEmptyTicket.ticketUrl || '',
+      fdCode: nonEmptyTicket.fdCode || '',
+      complaintReason: nonEmptyTicket.complaintReason || ''
     };
   }
 
