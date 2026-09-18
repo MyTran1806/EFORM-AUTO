@@ -2,8 +2,8 @@
   "schemaVersion": 1,
   "sourceSheetId": "1B7-3E7QbVoDF39KRqzJ0AItzsxEJfE9SuWVjAO80Wxc",
   "sourceGid": "0",
-  "version": "20260918-134341",
-  "publishedAt": "2026-09-18T06:43:41.452Z",
+  "version": "20260918-141037",
+  "publishedAt": "2026-09-18T07:10:37.712Z",
   "items": [
     {
       "sheetRow": 2,
@@ -12,7 +12,8 @@
       "responsibleRule": "Kho giao",
       "incidentLabel": "Không giao/lấy/trả đúng số lần quy định",
       "incidentType": "giao_lay_tra_sai_so_lan_quy_dinh",
-      "template": "SAI SOP_ #ma_don_hang\n\nDear All\n\nCS tiếp nhận khiếu nại ĐH #ma_don_hang có thông tin NV giao làm sai ghi chú bắt buộc. <mô tả chi tiết thông tin NG báo>. Nhờ BC xác minh với NV giao & phản hồi trước deadline. Quá SLA không phản hồi, CS xử lí đền bù đến KH.\n\nThanks"
+      "template": "SAI SOP_ #ma_don_hang\n\nDear All\n\nCS tiếp nhận khiếu nại ĐH #ma_don_hang có thông tin NV giao làm sai ghi chú bắt buộc. <mô tả chi tiết thông tin NG báo>. Nhờ BC xác minh với NV giao & phản hồi trước deadline. Quá SLA không phản hồi, CS xử lí đền bù đến KH.\n\nThanks",
+      "amountSource": "Tổng phí dịch vụ"
     },
     {
       "sheetRow": 3,
@@ -21,7 +22,8 @@
       "responsibleRule": "Kho giao",
       "incidentLabel": "Không giao/lấy/trả đúng số lần quy định",
       "incidentType": "giao_lay_tra_sai_so_lan_quy_dinh",
-      "template": "SAI SOP_ #ma_don_hang\n\nDear All\n\nCS tiếp nhận khiếu nại ĐH #ma_don_hang BC không giao đủ số lần quy định. <mô tả chi tiết khiếu nại NG báo>. Nhờ BC giải trình & cung cấp đủ call log trước deadline. Quá SLA không phản hồi, CS xử lí đền bù đến KH.\n\nThanks"
+      "template": "SAI SOP_ #ma_don_hang\n\nDear All\n\nCS tiếp nhận khiếu nại ĐH #ma_don_hang BC không giao đủ số lần quy định. <mô tả chi tiết khiếu nại NG báo>. Nhờ BC giải trình & cung cấp đủ call log trước deadline. Quá SLA không phản hồi, CS xử lí đền bù đến KH.\n\nThanks",
+      "amountSource": "Tổng phí dịch vụ"
     },
     {
       "sheetRow": 4,
@@ -30,7 +32,8 @@
       "responsibleRule": "Kho giao",
       "incidentLabel": "Không giao/lấy/trả đúng số lần quy định",
       "incidentType": "giao_lay_tra_sai_so_lan_quy_dinh",
-      "template": "SAI SOP_ #ma_don_hang\n\nDear All\n\nCS tiếp nhận khiếu nại ĐH #ma_don_hang không đủ/Sai Call log theo quy định GHN ban hành. <mô tả chi tiết khiếu nại NG báo (nếu có)>. Nhờ BC giải trình & cung cấp đủ call log hợp lệ trước deadline. Quá SLA không phản hồi, CS xử lí đền bù đến KH.\n\nThanks"
+      "template": "SAI SOP_ #ma_don_hang\n\nDear All\n\nCS tiếp nhận khiếu nại ĐH #ma_don_hang không đủ/Sai Call log theo quy định GHN ban hành. <mô tả chi tiết khiếu nại NG báo (nếu có)>. Nhờ BC giải trình & cung cấp đủ call log hợp lệ trước deadline. Quá SLA không phản hồi, CS xử lí đền bù đến KH.\n\nThanks",
+      "amountSource": "Tổng phí dịch vụ"
     },
     {
       "sheetRow": 5,
@@ -39,7 +42,8 @@
       "responsibleRule": "Kho giao",
       "incidentLabel": "Không giao/lấy tận nơi",
       "incidentType": "khong_giao_lay_tan_noi",
-      "template": "SAI SOP_ #ma_don_hang\n\nDear All\n\nCS tiếp nhận khiếu nại ĐH #ma_don_hang NV giao/lấy không giao/lấy hàng tận nơi . <mô tả chi tiết khiếu nại NG báo (nếu có)>. Nhờ BC xác minh với NV giao & giải trình sự cố trước deadline. Quá SLA không phản hồi, CS xử lí đền bù đến KH.\n\nThanks"
+      "template": "SAI SOP_ #ma_don_hang\n\nDear All\n\nCS tiếp nhận khiếu nại ĐH #ma_don_hang NV giao/lấy không giao/lấy hàng tận nơi . <mô tả chi tiết khiếu nại NG báo (nếu có)>. Nhờ BC xác minh với NV giao & giải trình sự cố trước deadline. Quá SLA không phản hồi, CS xử lí đền bù đến KH.\n\nThanks",
+      "amountSource": "Tổng phí dịch vụ"
     },
     {
       "sheetRow": 6,
@@ -48,7 +52,8 @@
       "responsibleRule": "Kho giao",
       "incidentLabel": "Không giao/lấy/trả đúng số lần quy định",
       "incidentType": "giao_lay_tra_sai_so_lan_quy_dinh",
-      "template": "SAI SOP_ #ma_don_hang\n\nDear All\n\nCS tiếp nhận khiếu nại ĐH #ma_don_hang đã được kích hoạt giao lại nhưng không có chuyến giao hàng/không có call log giao hàng . <mô tả chi tiết khiếu nại NG báo (nếu có)>. Nhờ BC giải trình sự cố trước deadline. Quá SLA không phản hồi, CS xử lí đền bù đến KH.\n\nThanks"
+      "template": "SAI SOP_ #ma_don_hang\n\nDear All\n\nCS tiếp nhận khiếu nại ĐH #ma_don_hang đã được kích hoạt giao lại nhưng không có chuyến giao hàng/không có call log giao hàng . <mô tả chi tiết khiếu nại NG báo (nếu có)>. Nhờ BC giải trình sự cố trước deadline. Quá SLA không phản hồi, CS xử lí đền bù đến KH.\n\nThanks",
+      "amountSource": "Tổng phí dịch vụ"
     },
     {
       "sheetRow": 7,
@@ -57,7 +62,8 @@
       "responsibleRule": "Kho giao",
       "incidentLabel": "Không giao/lấy/trả đúng số lần quy định",
       "incidentType": "giao_lay_tra_sai_so_lan_quy_dinh",
-      "template": "SAI SOP_ #ma_don_hang\n\n Dear All\n\n CS tiếp nhận khiếu nại ĐH #ma_don_hang Bưu cục tự ý đổi địa chỉ của NN không đúng với thực tế <mô tả chi tiết khiếu nại (nếu có)>. Nhờ BC kiểm tra giải trình sự cố & cung cấp tin nhắn xác minh từ phía NG/NN trước deadline. Quá SLA không phản hồi, CS xử lí đền bù đến KH.\n\n Thanks"
+      "template": "SAI SOP_ #ma_don_hang\n\n Dear All\n\n CS tiếp nhận khiếu nại ĐH #ma_don_hang Bưu cục tự ý đổi địa chỉ của NN không đúng với thực tế <mô tả chi tiết khiếu nại (nếu có)>. Nhờ BC kiểm tra giải trình sự cố & cung cấp tin nhắn xác minh từ phía NG/NN trước deadline. Quá SLA không phản hồi, CS xử lí đền bù đến KH.\n\n Thanks",
+      "amountSource": "Tổng phí dịch vụ"
     },
     {
       "sheetRow": 8,
@@ -66,7 +72,8 @@
       "responsibleRule": "Kho giao",
       "incidentLabel": "Không giao/lấy/trả đúng số lần quy định",
       "incidentType": "giao_lay_tra_sai_so_lan_quy_dinh",
-      "template": "SAI SOP_ #ma_don_hang\n\nDear All\n\nCS tiếp nhận khiếu nại ĐH #ma_don_hang NV liên hệ hẹn giao nhưng không thực hiện giao đúng thời gian đã hẹn. <mô tả chi tiết khiếu nại (nếu có)>. Nhờ BC xác minh với NV giao & giải trình sự cố trước deadline. Quá SLA không phản hồi, CS xử lí đền bù đến KH.\n\nThanks"
+      "template": "SAI SOP_ #ma_don_hang\n\nDear All\n\nCS tiếp nhận khiếu nại ĐH #ma_don_hang NV liên hệ hẹn giao nhưng không thực hiện giao đúng thời gian đã hẹn. <mô tả chi tiết khiếu nại (nếu có)>. Nhờ BC xác minh với NV giao & giải trình sự cố trước deadline. Quá SLA không phản hồi, CS xử lí đền bù đến KH.\n\nThanks",
+      "amountSource": "Tổng phí dịch vụ"
     },
     {
       "sheetRow": 9,
@@ -75,7 +82,8 @@
       "responsibleRule": "Kho giao",
       "incidentLabel": "Đơn hàng giao ngoài giờ hành chính",
       "incidentType": "giao_ngoai_gio",
-      "template": "SAI SOP_ #ma_don_hang\n\nDear All,\n\nCS tiếp nhận khiếu nại ĐH #ma_don_hang BC giao hàng ngoài giờ hành chính dẫn đến Người nhận không nhận được hàng. <mô tả chi tiết khiếu nại NG báo (nếu có)>. Nhờ BC cung cấp xác nhận Người nhận yêu cầu giao hàng ngoài giờ hành chính trước deadline. Quá SLA không phản hồi, CS xử lí đền bù đến KH.\n\nThanks"
+      "template": "SAI SOP_ #ma_don_hang\n\nDear All,\n\nCS tiếp nhận khiếu nại ĐH #ma_don_hang BC giao hàng ngoài giờ hành chính dẫn đến Người nhận không nhận được hàng. <mô tả chi tiết khiếu nại NG báo (nếu có)>. Nhờ BC cung cấp xác nhận Người nhận yêu cầu giao hàng ngoài giờ hành chính trước deadline. Quá SLA không phản hồi, CS xử lí đền bù đến KH.\n\nThanks",
+      "amountSource": "Tổng phí dịch vụ"
     },
     {
       "sheetRow": 10,
@@ -84,7 +92,8 @@
       "responsibleRule": "Kho lấy",
       "incidentLabel": "Nhân viên tự ý thay đổi kích thước/khối lượng đơn hàng",
       "incidentType": "tu_y_thay_doi_ktkl_don",
-      "template": "SAI SOP_SAI KÍCH THƯỚC/KHỐI LƯỢNG_  #ma_don_hang\n\nDear All\n\nCS tiếp nhận khiếu nại ĐH  #ma_don_hang có KT/KL thực tế là <điền TT NG báo> tuy nhiên <tên BC thay đổi KT/KL ĐH> tự ý thay đổi KL/KT ĐH dẫn đến cước dịch vụ tăng cao. Nhờ BC cung cấp xác nhận NG đồng ý thay đổi KT/KL trước deadline. Qúa SLA không phản hồi, CS xử lí hoàn cước chênh lệch cho NG.\n\n\nThanks."
+      "template": "SAI SOP_SAI KÍCH THƯỚC/KHỐI LƯỢNG_  #ma_don_hang\n\nDear All\n\nCS tiếp nhận khiếu nại ĐH  #ma_don_hang có KT/KL thực tế là <điền TT NG báo> tuy nhiên <tên BC thay đổi KT/KL ĐH> tự ý thay đổi KL/KT ĐH dẫn đến cước dịch vụ tăng cao. Nhờ BC cung cấp xác nhận NG đồng ý thay đổi KT/KL trước deadline. Qúa SLA không phản hồi, CS xử lí hoàn cước chênh lệch cho NG.\n\n\nThanks.",
+      "amountSource": "Tổng phí dịch vụ"
     },
     {
       "sheetRow": 11,
@@ -93,7 +102,8 @@
       "responsibleRule": "Kho hiện tại",
       "incidentLabel": "Nhân viên tự ý thay đổi kích thước/khối lượng đơn hàng",
       "incidentType": "tu_y_thay_doi_ktkl_don",
-      "template": "SAI SOP_SAI KÍCH THƯỚC/KHỐI LƯỢNG_  #ma_don_hang\n\nDear All\n\n CS tiếp nhận khiếu nại ĐH  #ma_don_hang có KT/KL thực tế là <điền TT NG báo> tuy nhiên NG tạo đơn/điều chỉnh sai thông tin KT/KL thành <điền KT/KL sai vào phần này>. Nhờ BC cung cấp hình ảnh hàng vật lí và phản hồi lại KL/KT ĐH đang tại BC trước deadline để CS có cơ sở xử lí với KH.\n\nThanks."
+      "template": "SAI SOP_SAI KÍCH THƯỚC/KHỐI LƯỢNG_  #ma_don_hang\n\nDear All\n\n CS tiếp nhận khiếu nại ĐH  #ma_don_hang có KT/KL thực tế là <điền TT NG báo> tuy nhiên NG tạo đơn/điều chỉnh sai thông tin KT/KL thành <điền KT/KL sai vào phần này>. Nhờ BC cung cấp hình ảnh hàng vật lí và phản hồi lại KL/KT ĐH đang tại BC trước deadline để CS có cơ sở xử lí với KH.\n\nThanks.",
+      "amountSource": "Tổng phí dịch vụ"
     },
     {
       "sheetRow": 12,
@@ -102,7 +112,8 @@
       "responsibleRule": "Kho giao",
       "incidentLabel": "Sai quy trình đơn hàng giao 1 phần",
       "incidentType": "sai_quy_trinh_g1p",
-      "template": "SAI SOP_ GT1P_ #ma_don_hang\n\nDear All\n\nCS tiếp nhận trường hợp NG khiếu nại giao hàng 1 phần tuy nhiên ĐH  #ma_don_hang NG không nhận được hàng hoàn về. Nhờ BC kiểm tra thông tin & phản hồi trước deadline. Qúa SLA không phản hồi, CS xử lí đền bù hàng thu hồi cho NG.\n\n 1. Nếu đã trả hàng: Cung cấp mã vận đơn thu hồi giúp CS.\n 2. Nếu đang lưu trữ hàng vật lí: Cung cấp hình ảnh sản phẩm để CS hỗ trợ trả hàng về NG.\n 3. Nếu NN không bàn giao hàng/nhận toàn bộ kiện hàng <chọn 1 trong 2 TT>: BC cung cấp xác nhận hợp lệ từ NN.\n\nThanks"
+      "template": "SAI SOP_ GT1P_ #ma_don_hang\n\nDear All\n\nCS tiếp nhận trường hợp NG khiếu nại giao hàng 1 phần tuy nhiên ĐH  #ma_don_hang NG không nhận được hàng hoàn về. Nhờ BC kiểm tra thông tin & phản hồi trước deadline. Qúa SLA không phản hồi, CS xử lí đền bù hàng thu hồi cho NG.\n\n 1. Nếu đã trả hàng: Cung cấp mã vận đơn thu hồi giúp CS.\n 2. Nếu đang lưu trữ hàng vật lí: Cung cấp hình ảnh sản phẩm để CS hỗ trợ trả hàng về NG.\n 3. Nếu NN không bàn giao hàng/nhận toàn bộ kiện hàng <chọn 1 trong 2 TT>: BC cung cấp xác nhận hợp lệ từ NN.\n\nThanks",
+      "amountSource": "Giá trị đơn hàng"
     },
     {
       "sheetRow": 13,
@@ -111,7 +122,8 @@
       "responsibleRule": "Kho giao",
       "incidentLabel": "Không giao/lấy/trả đúng số lần quy định",
       "incidentType": "giao_lay_tra_sai_so_lan_quy_dinh",
-      "template": "KHIẾU NẠI THÁI ĐỘ_ #ma_don_hang\n\nDear All\n\nCS tiếp nhận khiếu nại ĐH #ma_don_hang NV GHN có thái độ không đúng mực với KH. <mô tả chi tiết khiếu nại NG báo (nếu có)>. Nhờ BC xác minh lại với NV & phản hồi để CS có cơ sở trao đổi với KH.\n\nThanks."
+      "template": "KHIẾU NẠI THÁI ĐỘ_ #ma_don_hang\n\nDear All\n\nCS tiếp nhận khiếu nại ĐH #ma_don_hang NV GHN có thái độ không đúng mực với KH. <mô tả chi tiết khiếu nại NG báo (nếu có)>. Nhờ BC xác minh lại với NV & phản hồi để CS có cơ sở trao đổi với KH.\n\nThanks.",
+      "amountSource": "Tổng phí dịch vụ"
     },
     {
       "sheetRow": 14,
@@ -120,7 +132,8 @@
       "responsibleRule": "Kho hiện tại",
       "incidentLabel": "Đơn hàng bị quá hạn toàn trình",
       "incidentType": "qua_han_toan_trinh",
-      "template": "TICK MẤT HÀNG _ #ma_don_hang\n\nDear All\n\nCS tiếp nhận khiếu nại ĐH #ma_don_hang đã đến Bưu cục hiện tại >= 5 ngày & không có log tác động trên hệ thống: không rã kiện để đi giao hoặc không có log luân chuyển đơn hàng hoặc không có phiếu sự cố trên QLRR. Nhờ BC kiểm tra hàng vật lí & giao/trả hàng trước deadline. Quá SLA Bưu cục không giải trình hoặc đơn hàng không có thông tin xử lý, CS xin phép  xử lí đền bù theo chính sách mất hàng đến khách hàng.\n\nThanks"
+      "template": "TICK MẤT HÀNG _ #ma_don_hang\n\nDear All\n\nCS tiếp nhận khiếu nại ĐH #ma_don_hang đã đến Bưu cục hiện tại >= 5 ngày & không có log tác động trên hệ thống: không rã kiện để đi giao hoặc không có log luân chuyển đơn hàng hoặc không có phiếu sự cố trên QLRR. Nhờ BC kiểm tra hàng vật lí & giao/trả hàng trước deadline. Quá SLA Bưu cục không giải trình hoặc đơn hàng không có thông tin xử lý, CS xin phép  xử lí đền bù theo chính sách mất hàng đến khách hàng.\n\nThanks",
+      "amountSource": "Giá trị đơn hàng"
     },
     {
       "sheetRow": 15,
@@ -129,7 +142,8 @@
       "responsibleRule": "Kho giao",
       "incidentLabel": "Không giao/lấy/trả đủ số lần quy định (TẠM)",
       "incidentType": "giao_lay_tra_sai_so_lan_quy_dinh",
-      "template": "MTTT _ #ma_don_hang\n\n Dear all,\n\n CS tiếp nhận khiếu nại ĐH #ma_don_hang NN không nhận được cuộc gọi giao hàng, CS đã cung cấp log trên hệ thống nhưng NN xác nhận không nhận được cuộc gọi như trên hệ thống hiển thị. Nhờ BC xác minh với NV giao & phản hồi hình ảnh log cuộc gọi hoặc tin nhắn xác nhận từ NN trước deadline. Quá SLA không phản hồi, CS xử lí đền bù đến KH.\n\n Thanks"
+      "template": "MTTT _ #ma_don_hang\n\n Dear all,\n\n CS tiếp nhận khiếu nại ĐH #ma_don_hang NN không nhận được cuộc gọi giao hàng, CS đã cung cấp log trên hệ thống nhưng NN xác nhận không nhận được cuộc gọi như trên hệ thống hiển thị. Nhờ BC xác minh với NV giao & phản hồi hình ảnh log cuộc gọi hoặc tin nhắn xác nhận từ NN trước deadline. Quá SLA không phản hồi, CS xử lí đền bù đến KH.\n\n Thanks",
+      "amountSource": "Tổng phí dịch vụ"
     },
     {
       "sheetRow": 16,
@@ -138,7 +152,8 @@
       "responsibleRule": "Kho giao",
       "incidentLabel": "Không giao/lấy/trả đúng số lần quy định",
       "incidentType": "giao_lay_tra_sai_so_lan_quy_dinh",
-      "template": "MTTT _ #ma_don_hang\n\n Dear all,\n\n CS tiếp nhận khiếu nại ĐH #ma_don_hang NN không từ chối nhận/không hẹn ngày giao/NV cập nhật sai lí do giao thất bại. <Thông tin thêm NN khiếu nại (nếu có)>. Nhờ BC xác minh với NV giao & phản hồi tin nhắn xác nhận từ NN từ chối nhận/hẹn lại ngày giao. Quá SLA không phản hồi, CS xử lí đền bù đến KH.\n\n Thanks"
+      "template": "MTTT _ #ma_don_hang\n\n Dear all,\n\n CS tiếp nhận khiếu nại ĐH #ma_don_hang NN không từ chối nhận/không hẹn ngày giao/NV cập nhật sai lí do giao thất bại. <Thông tin thêm NN khiếu nại (nếu có)>. Nhờ BC xác minh với NV giao & phản hồi tin nhắn xác nhận từ NN từ chối nhận/hẹn lại ngày giao. Quá SLA không phản hồi, CS xử lí đền bù đến KH.\n\n Thanks",
+      "amountSource": "Tổng phí dịch vụ"
     },
     {
       "sheetRow": 17,
@@ -147,7 +162,8 @@
       "responsibleRule": "Kho giao",
       "incidentLabel": "Không giao/lấy/trả đúng số lần quy định",
       "incidentType": "giao_lay_tra_sai_so_lan_quy_dinh",
-      "template": "MTTT _ #ma_don_hang\n\n Dear all,\n\n CS tiếp nhận khiếu nại ĐH #ma_don_hang NV hẹn lại mà không giao/lấy. <Thông tin thêm NN khiếu nại (nếu có)>. Nhờ BC xác minh với NV giao/lấy & phản hồi tin nhắn xác nhận từ NN nhân viên đã giao/lấy lại. Quá SLA không phản hồi, CS xử lí đền bù đến KH.\n\n Thanks"
+      "template": "MTTT _ #ma_don_hang\n\n Dear all,\n\n CS tiếp nhận khiếu nại ĐH #ma_don_hang NV hẹn lại mà không giao/lấy. <Thông tin thêm NN khiếu nại (nếu có)>. Nhờ BC xác minh với NV giao/lấy & phản hồi tin nhắn xác nhận từ NN nhân viên đã giao/lấy lại. Quá SLA không phản hồi, CS xử lí đền bù đến KH.\n\n Thanks",
+      "amountSource": "Tổng phí dịch vụ"
     },
     {
       "sheetRow": 18,
@@ -156,7 +172,8 @@
       "responsibleRule": "Kho giao",
       "incidentLabel": "Thu dư tiền khách hàng",
       "incidentType": "thu_du_tien",
-      "template": "SAI SOP_ GTB - TT_ #ma_don_hang\n\nDear all,\n\nCS tiếp nhận khiếu nại ĐH #ma_don_hang NN từ chối nhận hàng giao & có thanh toán cho NV #gia_tri_den_bu tuy nhiên NV không thao tác GTB - TT để chuyển tiền thu về cho NG. Nhờ BC xác minh & phản hồi sự cố này trước deadline. Quá SLA không phản hồi, CS xử lí hoàn phí cho KH.\n\nThanks"
+      "template": "SAI SOP_ GTB - TT_ #ma_don_hang\n\nDear all,\n\nCS tiếp nhận khiếu nại ĐH #ma_don_hang NN từ chối nhận hàng giao & có thanh toán cho NV #gia_tri_den_bu tuy nhiên NV không thao tác GTB - TT để chuyển tiền thu về cho NG. Nhờ BC xác minh & phản hồi sự cố này trước deadline. Quá SLA không phản hồi, CS xử lí hoàn phí cho KH.\n\nThanks",
+      "amountSource": "Giao thất bại - thu tiền"
     },
     {
       "sheetRow": 19,
@@ -165,7 +182,8 @@
       "responsibleRule": "Kho giao",
       "incidentLabel": "Thu dư tiền khách hàng",
       "incidentType": "thu_du_tien",
-      "template": "COD _ THU DƯ TIỀN _ #ma_don_hang\n\n Dear all,\n CS tiếp nhận khiếu nại ĐH #ma_don_hang NV giao hàng thu dư tiền của NN/NG <điều chỉnh thông tin theo khiếu nại của NG>. Nhờ BC xác minh & phản hồi sự cố này trước deadline. Quá SLA không phản hồi, CS xử lí tiền thu dư đến KH.\n Thanks"
+      "template": "COD _ THU DƯ TIỀN _ #ma_don_hang\n\n Dear all,\n CS tiếp nhận khiếu nại ĐH #ma_don_hang NV giao hàng thu dư tiền của NN/NG <điều chỉnh thông tin theo khiếu nại của NG>. Nhờ BC xác minh & phản hồi sự cố này trước deadline. Quá SLA không phản hồi, CS xử lí tiền thu dư đến KH.\n Thanks",
+      "amountSource": "Giá trị đơn hàng"
     },
     {
       "sheetRow": 20,
@@ -174,7 +192,8 @@
       "responsibleRule": "Kho hiện tại",
       "incidentLabel": "Khách đã nhận hàng thanh toán COD nhưng không tích giao thành công",
       "incidentType": "khieu_nai_chua_tick_gtc",
-      "template": "COD_CHƯA UPDATE PHIẾU THU_ #ma_don_hang\n\n Dear all,\n\n CS tiếp nhận khiếu nại ĐH #ma_don_hang đã được tích giao thành công trên hệ thống tuy nhiên BC không đóng phiếu thu để GHN chuyển khoản về NG. Nhờ BC cập nhật phiếu thu trước deadline. Quá SLA không phản hồi, CS xử lí đền bù đến KH.\n\n Thanks"
+      "template": "COD_CHƯA UPDATE PHIẾU THU_ #ma_don_hang\n\n Dear all,\n\n CS tiếp nhận khiếu nại ĐH #ma_don_hang đã được tích giao thành công trên hệ thống tuy nhiên BC không đóng phiếu thu để GHN chuyển khoản về NG. Nhờ BC cập nhật phiếu thu trước deadline. Quá SLA không phản hồi, CS xử lí đền bù đến KH.\n\n Thanks",
+      "amountSource": "Tiền thu hộ (COD)"
     },
     {
       "sheetRow": 21,
@@ -183,7 +202,8 @@
       "responsibleRule": "Kho hiện tại",
       "incidentLabel": "Không giao/lấy/trả đúng số lần quy định",
       "incidentType": "giao_lay_tra_sai_so_lan_quy_dinh",
-      "template": "SAI TRẠNG THÁI_ KHO REVERT_ #ma_don_hang\n\n Dear all,\n\n CS tiếp nhận khiếu nại ĐH #ma_don_hang NG đã bàn giao hàng cho NV BC tuy nhiên BC revert từ đã lấy/lưu kho => chờ lấy hàng/huỷ đơn <xem kĩ hệ thống chuyển trạng thái nào thì điều chỉnh cho khớp TT>. Hiện NG chưa nhận được hàng trả, vì vậy BC vui lòng cung cấp biên bản trả hàng hợp lệ trước deadline. Quá SLA không phản hồi, CS xử lí đền bù đến KH.\n\n Thanks"
+      "template": "SAI TRẠNG THÁI_ KHO REVERT_ #ma_don_hang\n\n Dear all,\n\n CS tiếp nhận khiếu nại ĐH #ma_don_hang NG đã bàn giao hàng cho NV BC tuy nhiên BC revert từ đã lấy/lưu kho => chờ lấy hàng/huỷ đơn <xem kĩ hệ thống chuyển trạng thái nào thì điều chỉnh cho khớp TT>. Hiện NG chưa nhận được hàng trả, vì vậy BC vui lòng cung cấp biên bản trả hàng hợp lệ trước deadline. Quá SLA không phản hồi, CS xử lí đền bù đến KH.\n\n Thanks",
+      "amountSource": "Giá trị đơn hàng"
     },
     {
       "sheetRow": 22,
@@ -192,7 +212,8 @@
       "responsibleRule": "Kho hiện tại",
       "incidentLabel": "Không giao/lấy/trả đúng số lần quy định",
       "incidentType": "giao_lay_tra_sai_so_lan_quy_dinh",
-      "template": "SAI TRẠNG THÁI _CHƯA UPDATE LƯU KHO_ #ma_don_hang\n\n Dear all,\n\n CS tiếp nhận khiếu nại ĐH #ma_don_hang NG đã bàn giao hàng cho NV BC tuy nhiên ĐH vẫn chưa được cập nhật lưu kho. <Bổ sung thêm TT NG báo>. Nhờ BC kiểm tra hàng vật lí & phản hồi trước deadline. Quá SLA không phản hồi, CS xử lí đền bù đến KH.\n\n Thanks"
+      "template": "SAI TRẠNG THÁI _CHƯA UPDATE LƯU KHO_ #ma_don_hang\n\n Dear all,\n\n CS tiếp nhận khiếu nại ĐH #ma_don_hang NG đã bàn giao hàng cho NV BC tuy nhiên ĐH vẫn chưa được cập nhật lưu kho. <Bổ sung thêm TT NG báo>. Nhờ BC kiểm tra hàng vật lí & phản hồi trước deadline. Quá SLA không phản hồi, CS xử lí đền bù đến KH.\n\n Thanks",
+      "amountSource": "Giá trị đơn hàng"
     },
     {
       "sheetRow": 23,
@@ -201,7 +222,8 @@
       "responsibleRule": "Kho hiện tại",
       "incidentLabel": "Không giao/lấy/trả đúng số lần quy định",
       "incidentType": "giao_lay_tra_sai_so_lan_quy_dinh",
-      "template": "SAI TRẠNG THÁI_UPDATE SAI THÔNG TIN_ #ma_don_hang\n\n Dear all,\n\n CS tiếp nhận khiếu nại ĐH #ma_don_hang NG chưa bàn giao hàng cho NV BC tuy nhiên ĐH đã được cập nhật lưu kho. Nhờ BC xác minh lại với NV & phản hồi để CS có cơ sở trao đổi với KH.\n\n Thanks"
+      "template": "SAI TRẠNG THÁI_UPDATE SAI THÔNG TIN_ #ma_don_hang\n\n Dear all,\n\n CS tiếp nhận khiếu nại ĐH #ma_don_hang NG chưa bàn giao hàng cho NV BC tuy nhiên ĐH đã được cập nhật lưu kho. Nhờ BC xác minh lại với NV & phản hồi để CS có cơ sở trao đổi với KH.\n\n Thanks",
+      "amountSource": "Giá trị đơn hàng"
     },
     {
       "sheetRow": 24,
@@ -210,7 +232,8 @@
       "responsibleRule": "Kho hiện tại",
       "incidentLabel": "Khách đã nhận hàng thanh toán COD nhưng không tích giao thành công",
       "incidentType": "khieu_nai_chua_tick_gtc",
-      "template": "SAI TRẠNG THÁI_NN ĐÃ NHẬN HÀNG NHƯNG CHƯA CẬP NHẬT_ #ma_don_hang\n\n ĐH có thông tin khách đã nhận được hàng #ma_don_hang, nhưng chưa cập nhật trạng thái đúng\n\n - Nếu đã giao: nhờ BC cập nhật GTC, Đóng phiếu thu để chuyển khoản về NG.\n - Nếu chưa giao: nhờ kho cung cấp hình ảnh kiện hàng ở BC giúp CS nha\n\nTrường hợp CS đã gán xử lý về BC mà NVXL/NVPTTT vẫn không cập nhật GTC sẽ bị khóa ID theo quy định OE ban hành\n\n Thanks"
+      "template": "SAI TRẠNG THÁI_NN ĐÃ NHẬN HÀNG NHƯNG CHƯA CẬP NHẬT_ #ma_don_hang\n\n ĐH có thông tin khách đã nhận được hàng #ma_don_hang, nhưng chưa cập nhật trạng thái đúng\n\n - Nếu đã giao: nhờ BC cập nhật GTC, Đóng phiếu thu để chuyển khoản về NG.\n - Nếu chưa giao: nhờ kho cung cấp hình ảnh kiện hàng ở BC giúp CS nha\n\nTrường hợp CS đã gán xử lý về BC mà NVXL/NVPTTT vẫn không cập nhật GTC sẽ bị khóa ID theo quy định OE ban hành\n\n Thanks",
+      "amountSource": "Tiền thu hộ (COD)"
     },
     {
       "sheetRow": 25,
@@ -219,7 +242,8 @@
       "responsibleRule": "Kho hiện tại",
       "incidentLabel": "Người nhận khiếu nại chưa nhận được hàng",
       "incidentType": "khieu_nai_chua_nhan_hang_giao",
-      "template": "POD _ KHÔNG HỢP LỆ - #ma_don_hang\n\n Dear all,\n\n CS nhận tin khiếu nại đơn hàng #ma_don_hang NN chưa nhận được hàng. CS kiểm tra POD trên hệ thống không hợp lệ. Nhờ kho kiểm tra và cung cấp tin nhắn NN xác nhận đã nhận hàng giúp CS\n\n Thanks"
+      "template": "POD _ KHÔNG HỢP LỆ - #ma_don_hang\n\n Dear all,\n\n CS nhận tin khiếu nại đơn hàng #ma_don_hang NN chưa nhận được hàng. CS kiểm tra POD trên hệ thống không hợp lệ. Nhờ kho kiểm tra và cung cấp tin nhắn NN xác nhận đã nhận hàng giúp CS\n\n Thanks",
+      "amountSource": "Giá trị đơn hàng"
     },
     {
       "sheetRow": 26,
@@ -228,7 +252,8 @@
       "responsibleRule": "Kho hiện tại",
       "incidentLabel": "Người gửi khiếu nại chưa nhận được hàng trả",
       "incidentType": "khieu_nai_chua_nhan_hang_tra",
-      "template": "POD _ KHÔNG HỢP LỆ - #ma_don_hang\n\n Dear all,\n\n CS nhận tin khiếu nại đơn hàng #ma_don_hang NG chưa nhận được hàng. CS kiểm tra POD trên hệ thống không hợp lệ (hình đính kèm). Nhờ kho kiểm tra và cung cấp POD hợp lệ giúp CS\n\n Thanks"
+      "template": "POD _ KHÔNG HỢP LỆ - #ma_don_hang\n\n Dear all,\n\n CS nhận tin khiếu nại đơn hàng #ma_don_hang NG chưa nhận được hàng. CS kiểm tra POD trên hệ thống không hợp lệ (hình đính kèm). Nhờ kho kiểm tra và cung cấp POD hợp lệ giúp CS\n\n Thanks",
+      "amountSource": "Giá trị đơn hàng"
     },
     {
       "sheetRow": 27,
@@ -237,7 +262,8 @@
       "responsibleRule": null,
       "incidentLabel": "Đơn hàng bị Mất/tráo/thiếu sản phẩm",
       "incidentType": "mat_trao_thieu",
-      "template": "Hàng Mất Ruột_ #ma_don_hang\n\nDear all,\nCS nhận thông tin khiếu nại #ma_don_hang phát sinh sự cố hàng mất ruột khi giao đến Người nhận/ hoàn về Shop.\n CS đính kèm các thông tin quan nhờ các bộ phận phối hợp hỗ trợ giúp CS ạ\nThanks"
+      "template": "Hàng Mất Ruột_ #ma_don_hang\n\nDear all,\nCS nhận thông tin khiếu nại #ma_don_hang phát sinh sự cố hàng mất ruột khi giao đến Người nhận/ hoàn về Shop.\n CS đính kèm các thông tin quan nhờ các bộ phận phối hợp hỗ trợ giúp CS ạ\nThanks",
+      "amountSource": "Giá trị đơn hàng"
     },
     {
       "sheetRow": 28,
@@ -246,7 +272,8 @@
       "responsibleRule": null,
       "incidentLabel": "Đơn hàng bị Mất/tráo/thiếu sản phẩm",
       "incidentType": "mat_trao_thieu",
-      "template": "Thiếu hàng_ #ma_don_hang\n\nDear all,\nCS nhận thông tin khiếu nại #ma_don_hang phát sinh sự cố thiếu hàng khi giao đến Người nhận/ hoàn về Shop.\n CS đính kèm các thông tin quan nhờ các bộ phận phối hợp hỗ trợ giúp CS ạ\nThanks"
+      "template": "Thiếu hàng_ #ma_don_hang\n\nDear all,\nCS nhận thông tin khiếu nại #ma_don_hang phát sinh sự cố thiếu hàng khi giao đến Người nhận/ hoàn về Shop.\n CS đính kèm các thông tin quan nhờ các bộ phận phối hợp hỗ trợ giúp CS ạ\nThanks",
+      "amountSource": "Giá trị đơn hàng"
     },
     {
       "sheetRow": 29,
@@ -255,7 +282,8 @@
       "responsibleRule": null,
       "incidentLabel": "Đơn hàng bị Mất/tráo/thiếu sản phẩm",
       "incidentType": "mat_trao_thieu",
-      "template": "Tráo hàng_ #ma_don_hang\n\nDear all,\nCS nhận thông tin khiếu nại #ma_don_hang phát sinh sự cố Tráo hàng khi giao đến Người nhận/ hoàn về Shop.\nCS đính kèm các thông tin quan nhờ các bộ phận phối hợp hỗ trợ giúp CS ạ\nThanks"
+      "template": "Tráo hàng_ #ma_don_hang\n\nDear all,\nCS nhận thông tin khiếu nại #ma_don_hang phát sinh sự cố Tráo hàng khi giao đến Người nhận/ hoàn về Shop.\nCS đính kèm các thông tin quan nhờ các bộ phận phối hợp hỗ trợ giúp CS ạ\nThanks",
+      "amountSource": "Giá trị đơn hàng"
     },
     {
       "sheetRow": 30,
@@ -264,7 +292,8 @@
       "responsibleRule": null,
       "incidentLabel": "Đơn hàng bị Mất/tráo/thiếu sản phẩm",
       "incidentType": "mat_trao_thieu",
-      "template": "NHẦM HÀNG - #ma_don_hang - MDH2\n\n Dear all,\n CS nhận thông tin khiếu nại từ khách hàng về sự cố nhầm hàng hàng khi giao đến Người nhận/ hoàn về Shop.\n CS đính kèm các thông tin quan nhờ các bộ phận phối hợp hỗ trợ giúp CS ạ\n Thanks"
+      "template": "NHẦM HÀNG - #ma_don_hang - MDH2\n\n Dear all,\n CS nhận thông tin khiếu nại từ khách hàng về sự cố nhầm hàng hàng khi giao đến Người nhận/ hoàn về Shop.\n CS đính kèm các thông tin quan nhờ các bộ phận phối hợp hỗ trợ giúp CS ạ\n Thanks",
+      "amountSource": "Giá trị đơn hàng"
     },
     {
       "sheetRow": 31,
@@ -273,7 +302,8 @@
       "responsibleRule": null,
       "incidentLabel": "Đơn hàng bị hư hỏng",
       "incidentType": "hang_hu_hong",
-      "template": "Hư hỏng_ #ma_don_hang\n\nDear all,\nCS nhận thông tin khiếu nại #ma_don_hang phát sinh sự cố hư hỏng khi giao đến Người nhận/ hoàn về Shop.\nCS đính kèm các thông tin quan nhờ các bộ phận phối hợp hỗ trợ giúp CS ạ\nThanks"
+      "template": "Hư hỏng_ #ma_don_hang\n\nDear all,\nCS nhận thông tin khiếu nại #ma_don_hang phát sinh sự cố hư hỏng khi giao đến Người nhận/ hoàn về Shop.\nCS đính kèm các thông tin quan nhờ các bộ phận phối hợp hỗ trợ giúp CS ạ\nThanks",
+      "amountSource": "Giá trị đơn hàng"
     }
   ]
 }
