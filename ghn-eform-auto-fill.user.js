@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         GHN - eForm đền bù & Task sự cố
 // @namespace    codex.ghn.internal
-// @version      2.6.46
+// @version      2.6.47
 // @description  Lấy dữ liệu ticket/tracuunoibo, tự điền eForm và form Task sự cố GHN; không tự tạo phiếu.
 // @homepageURL  https://github.com/MyTran1806/EFORM-AUTO
 // @updateURL    https://raw.githubusercontent.com/MyTran1806/EFORM-AUTO/main/ghn-eform-auto-fill.user.js
@@ -633,6 +633,16 @@
     return true;
   }
 
+  function nativeClear(input) {
+    if (!input) return false;
+    const proto = input instanceof HTMLTextAreaElement ? HTMLTextAreaElement.prototype : HTMLInputElement.prototype;
+    const setter = Object.getOwnPropertyDescriptor(proto, 'value')?.set;
+    setter ? setter.call(input, '') : (input.value = '');
+    input.dispatchEvent(new Event('input', { bubbles: true }));
+    input.dispatchEvent(new Event('change', { bubbles: true }));
+    return true;
+  }
+
   function nativeSearchSet(input, value) {
     if (!input || value == null) return false;
     const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')?.set;
@@ -874,13 +884,37 @@
   async function fillEform() {
     const baseDraft = draft();
     const safeOrderCode = extractOrderCode(baseDraft.trackingOrderCode || baseDraft.orderCode);
-    const data = { ...baseDraft, ...trackingForOrder(safeOrderCode), orderCode: safeOrderCode };
+    const preparedOrderCode = extractOrderCode(baseDraft.eformPreparedOrderCode || '');
+    const preparedAge = Date.now() - new Date(baseDraft.eformPreparedAt || 0).getTime();
+    const hasTicketContext = preparedOrderCode === safeOrderCode
+      && preparedAge >= 0 && preparedAge < 2 * 60 * 60 * 1000;
+    const data = {
+      ...baseDraft,
+      ...trackingForOrder(safeOrderCode),
+      orderCode: safeOrderCode,
+      // Các trường này chỉ được phép lấy từ lần bấm EF đền bù của đúng ticket.
+      // Nếu người dùng vào eForm trực tiếp, tuyệt đối không tái sử dụng ticket cũ.
+      fdCode: hasTicketContext ? clean(baseDraft.fdCode) : '',
+      ticketId: hasTicketContext ? clean(baseDraft.ticketId) : '',
+      ticketUrl: hasTicketContext ? clean(baseDraft.ticketUrl) : '',
+      complaintReason: hasTicketContext ? clean(baseDraft.complaintReason) : ''
+    };
+    // Context ticket chỉ dùng một lần cho lượt eForm vừa được mở từ nút EF đền bù.
+    // Việc giữ fdCode trong draft không còn nguy hiểm vì thiếu marker sẽ bị bỏ qua.
+    if (hasTicketContext) {
+      save({ eformPreparedOrderCode: '', eformPreparedTicketId: '', eformPreparedAt: '' });
+    }
     const currentFlowId = new URLSearchParams(location.search).get('flowId') || '';
     const isCashFlow = currentFlowId === CASH_FLOW_ID;
     const filled = new Set();
     const set = (commands, label, value, labelPatterns) => {
       const control = firstControl(Array.isArray(commands) ? commands : [commands], labelPatterns);
-      if (control?.getClientRects().length && nativeSet(control, value) && control.value === String(value)) filled.add(label);
+      if (!control?.getClientRects().length) return;
+      if (value === '' || value == null) {
+        nativeClear(control);
+        return;
+      }
+      if (nativeSet(control, value) && control.value === String(value)) filled.add(label);
     };
     const defaultsOk = await applyFixedDefaults();
     if (!defaultsOk) {
@@ -905,7 +939,14 @@
     };
     const fillTaskLink = async () => {
       const exactTaskUrl = taskLinkForOrder(data.orderCode)?.taskUrl || '';
-      if (!exactTaskUrl) return 'missing';
+      if (!exactTaskUrl) {
+        const staleTaskLinkControl = firstControl(
+          ['link_fd_hrw_task', 'link_fd_hrw_task*', 'link_task', 'link_task*', 'link_fd_hrw', 'url_task'],
+          [/link\s*fd\s*\/\s*hrw\s*\/\s*task/i, /link\s*(?:fd|hrw|task)/i]
+        );
+        if (staleTaskLinkControl?.getClientRects().length) nativeClear(staleTaskLinkControl);
+        return 'missing';
+      }
       const started = Date.now();
       while (Date.now() - started < 10000) {
         const taskLinkControl = firstControl(
@@ -2104,7 +2145,12 @@
             toast('Chưa có đơn từ trang tra cứu. Hãy mở tracuunoibo, tra đúng mã đơn và chờ tool báo đã lưu.');
             return;
           }
-          save(data);
+          save({
+            ...data,
+            eformPreparedOrderCode: data.orderCode,
+            eformPreparedTicketId: data.ticketId || '',
+            eformPreparedAt: new Date().toISOString()
+          });
           window.open(`${location.origin}/eform/form/create`, '_blank', 'noopener');
         },
         background: '#2563eb'
