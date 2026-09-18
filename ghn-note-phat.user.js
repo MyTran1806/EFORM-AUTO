@@ -589,8 +589,6 @@
 
   const LOST_FORM_ID = "1FAIpQLSeiu9kC4GvfD2CyYig8JZfGeXVQq9BlICqM3oezP4qZ0VJ7lA";
   if (location.hostname === "docs.google.com" && location.pathname.includes(LOST_FORM_ID)) {
-    const LOG = (...args) => console.log("[GHN-Note-Phat]", ...args);
-    LOG("Lost form page detected. emailReceipt =", new URL(location.href).searchParams.get("emailReceipt"));
     if (new URL(location.href).searchParams.get("emailReceipt") === "true") {
       const EMAIL_CHECKBOX_PREFIXES = ["Lưu lại", "Record"];
       const findEmailCheckbox = () => Array.from(document.querySelectorAll('[role="checkbox"]')).find((el) => {
@@ -602,24 +600,14 @@
       const TICK_SETTLE_MS = 600;
       const startedAt = Date.now();
       let lastClickAt = 0;
-      let attemptCount = 0;
       const attemptTick = () => {
-        attemptCount += 1;
         const checkbox = findEmailCheckbox();
-        const ariaChecked = checkbox ? checkbox.getAttribute("aria-checked") : null;
-        LOG(`attempt #${attemptCount} elapsed=${Date.now() - startedAt}ms found=${Boolean(checkbox)} ariaChecked=${ariaChecked} allCheckboxLabels=${JSON.stringify(Array.from(document.querySelectorAll('[role="checkbox"]')).map((el) => el.getAttribute("aria-label")))}`);
-        if (checkbox && ariaChecked === "true") {
-          LOG("Tick thanh cong sau", attemptCount, "lan thu.");
-          return true;
-        }
+        if (checkbox && checkbox.getAttribute("aria-checked") === "true") return true;
         if (checkbox && Date.now() - lastClickAt > TICK_SETTLE_MS) {
-          LOG("Dang click checkbox...");
           checkbox.click();
           lastClickAt = Date.now();
         }
-        const timedOut = Date.now() - startedAt >= TICK_TIMEOUT_MS;
-        if (timedOut) LOG("Het thoi gian, dung thu (khong tick duoc sau", attemptCount, "lan).");
-        return timedOut;
+        return Date.now() - startedAt >= TICK_TIMEOUT_MS;
       };
       if (!attemptTick()) {
         const timer = setInterval(() => { if (attemptTick()) clearInterval(timer); }, TICK_RETRY_MS);
