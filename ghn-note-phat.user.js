@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         GHN Note Phạt
 // @namespace    ghn.vn/noibo/note-phat
-// @version      1.0.7
+// @version      1.0.8
 // @description  Đọc lịch sử đơn hàng GHN và mở Google Form note phạt đã điền sẵn.
 // @author       GHN CS
 // @match        https://noibo.ghn.vn/*
@@ -485,6 +485,22 @@
 
   async function send(message) {
     if (message.type === `${PREFIX}LIST_LOOKUPS`) {
+      // When the panel is opened on Tra cứu itself, avoid a slower round-trip
+      // through Tampermonkey's cross-tab storage. This also works on browsers
+      // that delay value-change events in background tabs.
+      if (location.hostname === "tracuunoibo.ghn.vn" && contextProvider) {
+        const context = contextProvider();
+        return {
+          ok: true,
+          lookups: [{
+            tabId: instanceId,
+            url: location.href,
+            title: document.title || "Tra cứu nội bộ",
+            orderCode: context.orderCode || "",
+            lastAccessed: Date.now(),
+          }],
+        };
+      }
       const lookups = (await activeRegistry("lookup"))
         .map((item) => ({
           tabId: item.instanceId,
@@ -496,7 +512,16 @@
         .sort((a, b) => b.lastAccessed - a.lastAccessed);
       return { ok: true, lookups };
     }
-    if (message.type === `${PREFIX}READ_LOOKUP`) return requestLookup(message.tabId);
+    if (message.type === `${PREFIX}READ_LOOKUP`) {
+      if (message.tabId === instanceId && location.hostname === "tracuunoibo.ghn.vn" && readOrderHandler) {
+        try {
+          return await readOrderHandler();
+        } catch (error) {
+          return { ok: false, error: error.message || String(error) };
+        }
+      }
+      return requestLookup(message.tabId);
+    }
     if (message.type === `${PREFIX}FIND_TASK`) {
       return { ok: true, url: await findTask(message.orderCode, message.expectedText) };
     }
