@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         GHN - eForm đền bù & Task sự cố
 // @namespace    codex.ghn.internal
-// @version      2.6.37
+// @version      2.6.46
 // @description  Lấy dữ liệu ticket/tracuunoibo, tự điền eForm và form Task sự cố GHN; không tự tạo phiếu.
 // @homepageURL  https://github.com/MyTran1806/EFORM-AUTO
 // @updateURL    https://raw.githubusercontent.com/MyTran1806/EFORM-AUTO/main/ghn-eform-auto-fill.user.js
@@ -223,7 +223,10 @@
   }
 
   function valueBeside(labelText) {
-    const label = exactLeaf(labelText);
+    const normalizedLabel = normalizeChoice(clean(labelText).replace(/\s*[:：]\s*$/, ''));
+    const label = [...document.querySelectorAll('span, div, p, label')]
+      .find((element) => element.children.length === 0
+        && normalizeChoice(clean(element.textContent).replace(/\s*[:：]\s*$/, '')) === normalizedLabel);
     if (!label) return '';
     const row = label.closest('.table-row, .flex.flex-col') || label.parentElement?.parentElement || label.parentElement;
     if (!row) return '';
@@ -262,7 +265,7 @@
     const nodes = [...document.querySelectorAll('label, dt, th, div, span, p')]
       .filter((el) => el.children.length === 0 && clean(el.textContent).length < 100);
     for (const node of nodes) {
-      const labelText = clean(node.textContent).replace(/[:：]\s*$/, '');
+      const labelText = clean(clean(node.textContent).replace(/\s*[:：]\s*$/, ''));
       if (!patterns.some((pattern) => pattern.test(labelText))) continue;
       const candidates = [
         node.nextElementSibling,
@@ -369,9 +372,13 @@
       `(^|[^A-Z0-9_])${queryOrderCode.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}(?![A-Z0-9_])`,
       'i'
     ).test(pageText);
+    // URL có mã mới và chính mã đó đã xuất hiện trong nội dung trang thì trang đã sẵn sàng.
+    // Không để bộ đọc DOM phụ trả nhầm một chuỗi khác rồi phủ nhận mã chính xác trên URL.
+    // Giá trị ô tìm kiếm không nằm trong innerText, nên điều kiện queryCodeVisible vẫn tránh
+    // lưu nhầm khi SPA còn đang hiển thị nội dung của đơn trước.
     const pageReady = !queryOrderCode
       || normalizedDomOrder === queryOrderCode
-      || (!normalizedDomOrder && queryCodeVisible);
+      || queryCodeVisible;
     if (!pageReady) return {
       trackingOrderCode,
       pageReady: false,
@@ -389,6 +396,7 @@
       cod: money(valueBeside('Tiền thu hộ (COD):') || pageValue([/^Tiền thu hộ(?: \(COD\))?$/i, /^COD$/i])),
       declaredValue: money(valueBeside('Giá trị đơn hàng:') || pageValue([/^Giá trị đơn hàng$/i, /^Khai giá$/i, /^Giá trị khai giá$/i])),
       serviceFee: money(valueBeside('Tổng phí dịch vụ:') || pageValue([/^Tổng phí dịch vụ$/i, /^Giá cước(?: đơn hàng)?$/i, /^Phí dịch vụ$/i])),
+      failureCollectionAmount: money(valueBeside('Giao thất bại - thu tiền:') || pageValue([/^Giao thất bại\s*-\s*thu tiền$/i])),
       pickupHub: valueAfterLabel('Kho lấy') || valueBeside('Kho lấy:') || valueBeside('Bưu cục lấy:') || pageValue([/^(Kho|Bưu cục) lấy$/i]) || nearbyValue(/^(Kho|Bưu cục) lấy/i),
       deliveryHub: valueAfterLabel('Kho giao') || valueBeside('Kho giao:') || valueBeside('Bưu cục giao:') || pageValue([/^(Kho|Bưu cục) giao$/i]) || nearbyValue(/^(Kho|Bưu cục) giao/i),
       currentHub: valueAfterLabel('Kho hiện tại') || valueBeside('Kho hiện tại:') || valueBeside('Bưu cục hiện tại:') || pageValue([/^(Kho|Bưu cục) hiện tại$/i]) || nearbyValue(/^(Kho|Bưu cục) hiện tại/i),
@@ -397,18 +405,64 @@
     };
   }
 
+  function revealTrackingSections() {
+    let changed = false;
+    for (const expectedTitle of ['Thông tin người gửi', 'Tiền']) {
+      const heading = [...document.querySelectorAll('h1, h2, h3, h4, div, span')]
+        .filter((candidate) => normalizeChoice(candidate.textContent) === normalizeChoice(expectedTitle))
+        .filter((candidate) => candidate.getClientRects().length > 0)
+        .sort((left, right) => left.children.length - right.children.length)[0];
+      if (!heading) continue;
+      // Đi từ tiêu đề lên và lấy phần tử cha nhỏ nhất chứa dữ liệu của đúng khối.
+      // Không dựa vào tên class "card" vì giao diện mới dùng class đó cho cả vùng lớn.
+      const marker = expectedTitle === 'Thông tin người gửi' ? /Tài khoản\s*:/i : /Giá trị đơn hàng\s*:/i;
+      let card = heading.parentElement;
+      while (card && card !== document.body && !marker.test(clean(card.innerText))) {
+        card = card.parentElement;
+      }
+      if (!card || card === document.body || !marker.test(clean(card.innerText))) continue;
+      const cardText = clean(card.innerText);
+      // Một số trường nhạy cảm (SĐT/địa chỉ) vẫn luôn là xxxxx sau khi mở.
+      // Kiểm tra trường dữ liệu chính của từng khối để không bấm lần hai và đóng lại.
+      const needsReveal = expectedTitle === 'Thông tin người gửi'
+        ? /Tài khoản\s*:\s*x{4,}/i.test(cardText) || /Cửa hàng\s*:\s*x{4,}/i.test(cardText)
+        : /Giá trị đơn hàng\s*:\s*x{4,}/i.test(cardText) || /Tiền thu hộ\s*\(COD\)\s*:\s*x{4,}/i.test(cardText);
+      if (!needsReveal) continue;
+      const header = heading.closest('.title, [class*="title"], header') || heading.parentElement;
+      const candidates = [...(header || card).querySelectorAll('button, [role="button"], svg, img')]
+        .filter((element) => element.getClientRects().length > 0);
+      const labelledEye = candidates.find((element) => {
+        const label = `${element.getAttribute('aria-label') || ''} ${element.getAttribute('title') || ''}`;
+        return /(mắt|mat|eye|xem|hiện|hien|visibility)/i.test(label);
+      });
+      // Trang Tra cứu có lúc render icon bằng SVG, có lúc bằng IMG.
+      // Khi dữ liệu còn bị che, icon cuối card là nút mắt (sau nút sửa).
+      const eyeIcon = [...card.querySelectorAll('svg, img')]
+        .filter((element) => element.getClientRects().length > 0).pop();
+      const eye = labelledEye || eyeIcon?.closest('button, [role="button"], [class*="pointer"]') || eyeIcon;
+      if (!eye) continue;
+      mouseActivate(eye, false);
+      changed = true;
+    }
+    return changed;
+  }
+
   async function captureTrackingData({ wait = true, showFailure = true } = {}) {
     const maxAttempts = wait ? 80 : 1;
     let taskDataAnnounced = false;
     let basicDataAnnounced = false;
     for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
+      if (revealTrackingSections()) {
+        await new Promise((resolve) => setTimeout(resolve, 450));
+        continue;
+      }
       const data = trackingData();
       const previous = draft();
       if (data.trackingOrderCode && clean(previous.trackingOrderCode).toUpperCase() !== data.trackingOrderCode) {
         GM_setValue(STORE_KEY, {
           ...previous,
           trackingOrderCode: data.trackingOrderCode,
-          customerName: '', cod: '', declaredValue: '', serviceFee: '',
+          customerName: '', cod: '', declaredValue: '', serviceFee: '', failureCollectionAmount: '',
           pickupHub: '', deliveryHub: '', currentHub: '',
           trackingUrl: data.trackingUrl,
           updatedAt: new Date().toISOString()
@@ -450,6 +504,7 @@
     let lastSaved = '';
     let lastHubSaved = '';
     const inspect = () => {
+      if (revealTrackingSections()) return;
       const data = trackingData();
       if (!data.trackingOrderCode) return;
       const previous = draft();
@@ -461,7 +516,7 @@
           ...previous,
           orderCode: data.trackingOrderCode,
           trackingOrderCode: data.trackingOrderCode,
-          clientId: '', customerName: '', cod: '', declaredValue: '', serviceFee: '',
+          clientId: '', customerName: '', cod: '', declaredValue: '', serviceFee: '', failureCollectionAmount: '',
           pickupHub: '', deliveryHub: '', currentHub: '',
           lastOperatorId: '', lastOperatorName: '',
           trackingUrl: data.trackingUrl,
@@ -733,7 +788,15 @@
       const EventClass = type.startsWith('pointer') && pageWindow.PointerEvent ? pageWindow.PointerEvent : pageWindow.MouseEvent;
       element.dispatchEvent(new EventClass(type, { bubbles: true, cancelable: true, view: pageWindow, button: 0 }));
     }
-    pageWindow.HTMLElement.prototype.click.call(element);
+    // Các nút mắt của Tra cứu là SVGElement. HTMLElement.prototype.click.call(svg)
+    // có thể ném Illegal invocation và khiến React không nhận được sự kiện click.
+    if (typeof element.click === 'function') {
+      element.click();
+    } else {
+      element.dispatchEvent(new pageWindow.MouseEvent('click', {
+        bubbles: true, cancelable: true, view: pageWindow, button: 0
+      }));
+    }
   }
 
   function pressSyntheticKey(element, key) {
@@ -1230,6 +1293,35 @@
     return clean(valueCell?.textContent || '');
   }
 
+  function taskAmountForTemplate(templateItem, tracking) {
+    const source = normalizeChoice(templateItem?.amountSource || '');
+    if (!source) {
+      // Tương thích dữ liệu GitHub cũ chưa xuất cột F: dòng 18 là rule
+      // "Sai quy trình GTB - Thu tiền/ GT1P trả ship" và phải lấy đúng
+      // trường "Giao thất bại - thu tiền", không lấy Giá trị đơn hàng.
+      const reason = normalizeChoice(templateItem?.reason || '');
+      if (Number(templateItem?.sheetRow) === 18 || reason.includes('sai quy trinh gtb')) {
+        return tracking.failureCollectionAmount || '';
+      }
+      // JSON cũ chưa có cột F: loại Mất/tráo/thiếu có trường "Nhập số tiền"
+      // và mặc định tương ứng với Giá trị đơn hàng.
+      if (templateItem?.incidentType === 'mat_trao_thieu') {
+        return tracking.declaredValue || '';
+      }
+      // Giữ nguyên cách tính của các JSON cũ chưa có cột F.
+      return templateItem?.incidentType === 'qua_han_toan_trinh'
+        ? (tracking.declaredValue || '')
+        : (tracking.declaredValue || tracking.serviceFee || '');
+    }
+    if (source.includes('tong phi dich vu')) return tracking.serviceFee || '';
+    if (source.includes('gia tri don hang')) return tracking.declaredValue || '';
+    if (source.includes('tien thu ho') || source === 'cod') return tracking.cod || '';
+    if (source.includes('giao that bai') && source.includes('thu tien')) {
+      return tracking.failureCollectionAmount || '';
+    }
+    return '';
+  }
+
   async function chooseTaskCombobox(labelPattern, target) {
     if (!target) return false;
     let container = null;
@@ -1372,12 +1464,25 @@
       responsibleOperatorId = pending.lastOperatorId || operatorForOrder(pending.orderCode).lastOperatorId || '';
     }
 
-    const amountControl = taskTextControl(/Nhập số tiền/i, /Nhập số tiền/i);
-    const taskTracking = trackingForOrder(pending.orderCode);
-    const amountValue = pending.templateItem.incidentType === 'qua_han_toan_trinh'
-      ? (taskTracking.declaredValue || '')
-      : (taskTracking.declaredValue || taskTracking.serviceFee || '');
-    if (amountControl && amountValue) nativeSet(amountControl, amountValue);
+    let amountControl = null;
+    const amountStarted = Date.now();
+    while (!amountControl && Date.now() - amountStarted < 5000) {
+      amountControl = taskTextControl(/^(Giá trị|Nhập số tiền)\s*\*?$/i, /(Nhập giá trị|Nhập số tiền)/i);
+      if (!amountControl) await new Promise((resolve) => setTimeout(resolve, 150));
+    }
+    // Pending đã mang theo ảnh chụp dữ liệu tra cứu tại thời điểm mở task.
+    // Dùng nó làm dự phòng nếu cache theo mã đơn chưa kịp cập nhật xong.
+    const taskTracking = { ...pending, ...trackingForOrder(pending.orderCode) };
+    const amountValue = taskAmountForTemplate(pending.templateItem, taskTracking);
+    if (amountControl && amountValue) {
+      // Form Mất/tráo/thiếu để input ở readonly cho tới khi người dùng focus.
+      // Kích hoạt ô trước rồi mới gán giá trị để React chấp nhận và đồng bộ state.
+      if (amountControl.readOnly) {
+        mouseActivate(amountControl, false);
+        await new Promise((resolve) => setTimeout(resolve, 100));
+      }
+      nativeSet(amountControl, amountValue);
+    }
     if (/#gia_tri_den_bu/i.test(pending.templateItem.template || '')) {
       const syncCompensationValue = () => {
         const compensationValue = String(amountControl?.value || '').trim()
@@ -1421,7 +1526,9 @@
     const personStatus = responsiblePersonPrepared
       ? `mã ${responsibleOperatorId} đã sao chép, nhấn Ctrl+V rồi Enter`
       : (responsibleOperatorId ? `hãy click ô NV rồi dán mã ${responsibleOperatorId}` : 'chưa có mã từ tra cứu');
-    toast(`Task: mã đơn ${orderOk ? 'OK' : 'kiểm tra'} · bộ phận ${detectedOk && responsibleOk ? 'OK' : 'kiểm tra'}${personRequired ? ` · nhân viên ${personStatus}` : ''} · nội dung ${contentOk ? 'OK' : 'kiểm tra'}`);
+    const amountRequired = Boolean(pending.templateItem.amountSource);
+    const amountStatus = !amountRequired ? '' : ` · số tiền ${amountControl && amountValue ? 'OK' : 'kiểm tra'}`;
+    toast(`Task: mã đơn ${orderOk ? 'OK' : 'kiểm tra'} · bộ phận ${detectedOk && responsibleOk ? 'OK' : 'kiểm tra'}${personRequired ? ` · nhân viên ${personStatus}` : ''}${amountStatus} · nội dung ${contentOk ? 'OK' : 'kiểm tra'}`);
   }
 
   function autoFillTaskWhenReady() {
