@@ -16,6 +16,8 @@
 // @grant        GM_addValueChangeListener
 // @grant        GM_removeValueChangeListener
 // @grant        GM_openInTab
+// @updateURL    https://raw.githubusercontent.com/MyTran1806/EFORM-AUTO/main/ghn-note-phat.user.js
+// @downloadURL  https://raw.githubusercontent.com/MyTran1806/EFORM-AUTO/main/ghn-note-phat.user.js
 // ==/UserScript==
 
 (function (root, factory) {
