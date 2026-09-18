@@ -378,11 +378,13 @@
         heartbeat: now,
       };
       await setValue(key, taskContext);
-      if (taskContext.isTaskDetail && taskContext.overdueJourney) {
+      if (taskContext.isTaskDetail) {
         for (const orderCode of taskContext.orderCodes) {
-          await setValue(`${TASK_CACHE_PREFIX}${orderCode}.overdueJourney`, {
+          await setValue(`${TASK_CACHE_PREFIX}${orderCode}`, {
             orderCode,
-            overdueJourney: true,
+            receiverMissing: taskContext.receiverMissing,
+            senderMissingReturn: taskContext.senderMissingReturn,
+            overdueJourney: taskContext.overdueJourney,
             url: taskContext.url,
             savedAt: now,
           });
@@ -460,27 +462,30 @@
     });
   }
 
+  function taskMatchScore(task, wantsOverdueJourney, wantsReturn) {
+    if (wantsOverdueJourney) return Number(task.overdueJourney);
+    return wantsReturn ? Number(task.senderMissingReturn) : Number(task.receiverMissing);
+  }
+
   async function findTask(orderCode, expectedText) {
     const tasks = await activeRegistry("task");
     const wantsReturn = String(expectedText || "").toLowerCase().includes("hàng trả");
     const wantsOverdueJourney = String(expectedText || "").toLowerCase().includes("quá hạn toàn trình");
     const candidates = tasks
       .filter((task) => task.isTaskDetail && (!orderCode || task.orderCodes.includes(orderCode)))
-      .map((task) => ({
-        ...task,
-        score: wantsOverdueJourney
-          ? Number(task.overdueJourney)
-          : wantsReturn ? Number(task.senderMissingReturn) : Number(task.receiverMissing),
-      }))
+      .map((task) => ({ ...task, score: taskMatchScore(task, wantsOverdueJourney, wantsReturn) }))
       .sort((a, b) => b.score - a.score);
     if (candidates[0] && candidates[0].score) return candidates[0].url;
-    if (wantsOverdueJourney && orderCode) {
-      const cacheKey = `${TASK_CACHE_PREFIX}${orderCode}.overdueJourney`;
+    if (orderCode) {
+      const cacheKey = `${TASK_CACHE_PREFIX}${orderCode}`;
       const cached = await getValue(cacheKey, null);
-      if (cached && Date.now() - Number(cached.savedAt || 0) <= TASK_CACHE_MAX_AGE_MS) return cached.url || "";
-      if (cached) await deleteValue(cacheKey);
+      if (cached && Date.now() - Number(cached.savedAt || 0) <= TASK_CACHE_MAX_AGE_MS) {
+        if (taskMatchScore(cached, wantsOverdueJourney, wantsReturn)) return cached.url || "";
+      } else if (cached) {
+        await deleteValue(cacheKey);
+      }
     }
-    return candidates[0] ? candidates[0].url : "";
+    return "";
   }
 
   async function send(message) {
@@ -585,8 +590,12 @@
   const LOST_FORM_ID = "1FAIpQLSeiu9kC4GvfD2CyYig8JZfGeXVQq9BlICqM3oezP4qZ0VJ7lA";
   if (location.hostname === "docs.google.com" && location.pathname.includes(LOST_FORM_ID)) {
     if (new URL(location.href).searchParams.get("emailReceipt") === "true") {
+      const EMAIL_CHECKBOX_PREFIXES = ["Lưu lại", "Record"];
       const tickEmail = () => {
-        const checkbox = document.querySelector('[role="checkbox"][aria-label^="Lưu lại"]');
+        const checkbox = Array.from(document.querySelectorAll('[role="checkbox"]')).find((el) => {
+          const label = el.getAttribute("aria-label") || "";
+          return EMAIL_CHECKBOX_PREFIXES.some((prefix) => label.startsWith(prefix));
+        });
         if (checkbox && checkbox.getAttribute("aria-checked") !== "true") checkbox.click();
         return checkbox;
       };
@@ -649,7 +658,7 @@
     return {
       orderCode: getOrderCodeFromPage(),
       orderCodes: Core.extractOrderCodes(text),
-      isTaskDetail: /\/ghn-ticket\/(?:cs\/)?detail\/\d+/i.test(location.pathname),
+      isTaskDetail: /^\/ghn-ticket\/detail\/\d+/i.test(location.pathname),
       pageTextNormalized: Core.clean(text).toLowerCase(),
     };
   }
