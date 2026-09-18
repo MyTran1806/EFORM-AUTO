@@ -591,18 +591,26 @@
   if (location.hostname === "docs.google.com" && location.pathname.includes(LOST_FORM_ID)) {
     if (new URL(location.href).searchParams.get("emailReceipt") === "true") {
       const EMAIL_CHECKBOX_PREFIXES = ["Lưu lại", "Record"];
-      const tickEmail = () => {
-        const checkbox = Array.from(document.querySelectorAll('[role="checkbox"]')).find((el) => {
-          const label = el.getAttribute("aria-label") || "";
-          return EMAIL_CHECKBOX_PREFIXES.some((prefix) => label.startsWith(prefix));
-        });
-        if (checkbox && checkbox.getAttribute("aria-checked") !== "true") checkbox.click();
-        return checkbox;
+      const findEmailCheckbox = () => Array.from(document.querySelectorAll('[role="checkbox"]')).find((el) => {
+        const label = el.getAttribute("aria-label") || "";
+        return EMAIL_CHECKBOX_PREFIXES.some((prefix) => label.startsWith(prefix));
+      });
+      const TICK_TIMEOUT_MS = 15000;
+      const TICK_RETRY_MS = 400;
+      const TICK_SETTLE_MS = 600;
+      const startedAt = Date.now();
+      let lastClickAt = 0;
+      const attemptTick = () => {
+        const checkbox = findEmailCheckbox();
+        if (checkbox && checkbox.getAttribute("aria-checked") === "true") return true;
+        if (checkbox && Date.now() - lastClickAt > TICK_SETTLE_MS) {
+          checkbox.click();
+          lastClickAt = Date.now();
+        }
+        return Date.now() - startedAt >= TICK_TIMEOUT_MS;
       };
-      if (!tickEmail()) {
-        const observer = new MutationObserver(() => { if (tickEmail()) observer.disconnect(); });
-        observer.observe(document.documentElement, { childList: true, subtree: true });
-        setTimeout(() => observer.disconnect(), 15000);
+      if (!attemptTick()) {
+        const timer = setInterval(() => { if (attemptTick()) clearInterval(timer); }, TICK_RETRY_MS);
       }
     }
     return;
