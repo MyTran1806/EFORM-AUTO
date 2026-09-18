@@ -91,25 +91,25 @@
       key: "pickup-no-call",
       operation: "pickup",
       label: "Lấy — Không gọi khi lấy hàng",
-      formValue: "Người gửi  khiếu nại NV PTTT không gọi khi lấy hàng",
+      formValue: "Người gửi khiếu nại NV PTTT không gọi khi lấy hàng",
     },
     {
       key: "pickup-wrong-reason",
       operation: "pickup",
       label: "Lấy — Cập nhật sai lý do lấy thất bại",
-      formValue: "Người gửi  khiếu nại NV PTTT cập nhật sai lý do lấy thất bại",
+      formValue: "Người gửi khiếu nại NV PTTT cập nhật sai lý do lấy thất bại",
     },
     {
       key: "return-no-call",
       operation: "return",
       label: "Trả — Không gọi khi trả hàng",
-      formValue: "Người gửi  khiếu nại NV PTTT không gọi khi trả hàng",
+      formValue: "Người gửi khiếu nại NV PTTT không gọi khi trả hàng",
     },
     {
       key: "return-wrong-reason",
       operation: "return",
       label: "Trả — Cập nhật sai lý do trả thất bại",
-      formValue: "Người gửi  khiếu nại NV PTTT cập nhật sai lý do trả thất bại",
+      formValue: "Người gửi khiếu nại NV PTTT cập nhật sai lý do trả thất bại",
     },
   ];
 
@@ -942,7 +942,7 @@
   async function loadProfile() {
     const savedEmail = await storageGet(STORAGE_PROFILE);
     state.profile = Core.NOTE_EMPLOYEES.find((employee) => employee.email === savedEmail) || null;
-    if (!state.profile && flow !== "lost") {
+    if (!state.profile && state.flow !== "lost") {
       const firstText = Core.clean((document.body && document.body.innerText || "").slice(0, 1600));
       state.profile = Core.NOTE_EMPLOYEES.find((employee) => firstText.includes(employee.name)) || null;
       if (state.profile) await storageSet({ [STORAGE_PROFILE]: state.profile.email });
