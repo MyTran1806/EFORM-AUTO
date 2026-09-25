@@ -264,8 +264,15 @@
     return url.toString();
   }
 
+  const ORDER_CODE_TOKEN = /\b(?:G[A-Z0-9]{7,11}|NVS\d{6,12})(?:_PR)?\b/;
+  const ORDER_CODE_FULL = new RegExp(`^${ORDER_CODE_TOKEN.source}$`, "i");
+
+  function isOrderCode(value) {
+    return ORDER_CODE_FULL.test(clean(value));
+  }
+
   function extractOrderCodes(text) {
-    const matches = String(text || "").toUpperCase().match(/\bG[A-Z0-9]{7,11}\b/g) || [];
+    const matches = String(text || "").toUpperCase().match(new RegExp(ORDER_CODE_TOKEN.source, "g")) || [];
     return Array.from(new Set(matches));
   }
 
@@ -294,6 +301,7 @@
     buildPodUrl,
     buildLostUrl,
     extractOrderCodes,
+    isOrderCode,
   };
 });
 
@@ -653,9 +661,11 @@
 
   function getOrderCodeFromPage() {
     const url = new URL(location.href);
-    const direct = ["order_code", "q", "search_text"]
+    const orderCodeParam = url.searchParams.get("order_code");
+    if (orderCodeParam) return orderCodeParam.toUpperCase();
+    const direct = ["q", "search_text"]
       .map((key) => url.searchParams.get(key))
-      .find((value) => /^G[A-Z0-9]{7,11}$/i.test(value || ""));
+      .find((value) => Core.isOrderCode(value || ""));
     if (direct) return direct.toUpperCase();
     const codes = Core.extractOrderCodes(document.body ? document.body.innerText : "");
     return codes.length === 1 ? codes[0] : "";
