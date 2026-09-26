@@ -2,16 +2,16 @@
   "schemaVersion": 1,
   "sourceSheetId": "1B7-3E7QbVoDF39KRqzJ0AItzsxEJfE9SuWVjAO80Wxc",
   "sourceGid": "0",
-  "version": "20260918-141037",
-  "publishedAt": "2026-09-18T07:10:37.712Z",
+  "version": "20260926-162448",
+  "publishedAt": "2026-09-26T09:24:48.417Z",
   "items": [
     {
       "sheetRow": 2,
       "complaintType": "Sai SOP",
       "reason": "Sai ghi chú bắt buộc",
       "responsibleRule": "Kho giao",
-      "incidentLabel": "Không giao/lấy/trả đúng số lần quy định",
-      "incidentType": "giao_lay_tra_sai_so_lan_quy_dinh",
+      "incidentLabel": "Làm sai ghi chú bắt buộc",
+      "incidentType": "sai_ghi_chu_bat_buoc",
       "template": "SAI SOP_ #ma_don_hang\n\nDear All\n\nCS tiếp nhận khiếu nại ĐH #ma_don_hang có thông tin NV giao làm sai ghi chú bắt buộc. <mô tả chi tiết thông tin NG báo>. Nhờ BC xác minh với NV giao & phản hồi trước deadline. Quá SLA không phản hồi, CS xử lí đền bù đến KH.\n\nThanks",
       "amountSource": "Tổng phí dịch vụ"
     },
