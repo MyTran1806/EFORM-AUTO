@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         GHN - eForm đền bù & Task sự cố
 // @namespace    codex.ghn.internal
-// @version      2.6.47
+// @version      2.6.49
 // @description  Lấy dữ liệu ticket/tracuunoibo, tự điền eForm và form Task sự cố GHN; không tự tạo phiếu.
 // @homepageURL  https://github.com/MyTran1806/EFORM-AUTO
 // @updateURL    https://raw.githubusercontent.com/MyTran1806/EFORM-AUTO/main/ghn-eform-auto-fill.user.js
@@ -22,6 +22,10 @@
 (function () {
   'use strict';
 
+  if (location.hostname === 'tracuunoibo.ghn.vn' && new URL(location.href).searchParams.get('ghn_status_export') === '1') {
+    return;
+  }
+
   const STORE_KEY = 'ghn_compensation_draft_v1';
   const TRACKING_CACHE_KEY = 'ghn_tracking_by_order_v1';
   const LAST_OPERATOR_BRIDGE_KEY = 'ghn_last_operator_bridge_v1';
@@ -41,8 +45,8 @@
   const FIXED = {
     processGroup: 'Phòng Trải Nghiệm Khách Hàng (CX)',
     process: 'XU - ĐỀN BÙ ĐƠN HÀNG THEO CHÍNH SÁCH',
-    csGroup: 'B2C',
-    b2cTeam: 'Vùng 3',
+    csGroup: 'Growth',
+    growthTeam: 'Vùng 3',
     eformType: 'Cập nhật mới',
     recovery: 'Không thu hồi',
     partner: 'Không',
@@ -874,8 +878,8 @@
   async function applyFixedDefaults() {
     if (!(await waitForCommand('nhom_cs', 15000))) return false;
     const groupOk = await ensureChoice('nhom_cs', FIXED.csGroup);
-    if (!groupOk || !(await waitForCommand('team_b2c', 10000))) return false;
-    const teamOk = await ensureChoice('team_b2c', FIXED.b2cTeam);
+    if (!groupOk || !(await waitForCommand('team_growth', 10000))) return false;
+    const teamOk = await ensureChoice('team_growth', FIXED.growthTeam);
     if (!teamOk || !(await waitForCommand('loai_eform', 10000))) return false;
     const typeOk = await ensureChoice('loai_eform', FIXED.eformType);
     return groupOk && teamOk && typeOk;
@@ -918,7 +922,7 @@
     };
     const defaultsOk = await applyFixedDefaults();
     if (!defaultsOk) {
-      toast('Chưa chọn được B2C → Vùng 3 → Cập nhật mới; hãy bấm nút tự điền để thử lại.');
+      toast('Chưa chọn được Growth → Vùng 3 → Cập nhật mới; hãy bấm nút tự điền để thử lại.');
       return;
     }
     // Các trường thông tin đơn chỉ được React tạo sau khi chọn đủ ba dropdown trên.
@@ -1600,7 +1604,7 @@
         return;
       }
       // Mã đơn chưa tồn tại ở bước này. Form chỉ dựng phần dưới sau khi chọn
-      // Nhóm CS → Team B2C → Loại Eform, vì vậy phải khởi chạy từ dropdown đầu.
+      // Nhóm CS → Team Growth → Loại Eform, vì vậy phải khởi chạy từ dropdown đầu.
       const groupControl = firstControl(['nhom_cs'], [/nhóm cs/i]);
       if (groupControl) {
         clearInterval(timer);
@@ -2180,7 +2184,7 @@
         applyFixedDefaults().then((ok) => {
           if (ok) {
             if (isCashFlow) ensureChoice('tai_khoan_ngan_hang_cua_khach_hang', FIXED.bankAccount);
-            toast(`Đã chọn sẵn eForm ${isCashFlow ? 'TIỀN MẶT' : 'XU'}: B2C → Vùng 3 → Cập nhật mới${isCashFlow ? ' → 1. Tài khoản mặc định' : ''}.`);
+            toast(`Đã chọn sẵn eForm ${isCashFlow ? 'TIỀN MẶT' : 'XU'}: Growth → Vùng 3 → Cập nhật mới${isCashFlow ? ' → 1. Tài khoản mặc định' : ''}.`);
           }
         });
       }
