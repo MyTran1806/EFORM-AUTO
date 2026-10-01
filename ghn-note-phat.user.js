@@ -253,7 +253,7 @@
 
   function buildLostUrl(data) {
     const url = new URL(buildPrefillUrl(FORM_URLS.lost, {
-      [LOST_ENTRIES.group]: "B2C_VÙNG 3",
+      [LOST_ENTRIES.group]: "TEAM 3_MYTLTT",
       [LOST_ENTRIES.orderCode]: data.orderCode,
       [LOST_ENTRIES.currentWarehouse]: data.currentWarehouse,
       [LOST_ENTRIES.task]: data.task,
@@ -1241,7 +1241,7 @@
       <div class="order-strip"><strong>${escapeHtml(state.order.orderCode)}</strong><span class="ok">● Đã đọc Tra cứu</span></div>
       ${!warehouseName ? `<div class="alert error">Không đọc được tên Kho hiện tại.</div>` : ""}
       <dl class="review">
-        <div class="review-row"><dt>Nhóm</dt><dd>B2C_VÙNG 3</dd></div>
+        <div class="review-row"><dt>Nhóm</dt><dd>TEAM 3_MYTLTT</dd></div>
         <div class="review-row"><dt>Mã đơn</dt><dd>${escapeHtml(state.order.orderCode)}</dd></div>
         <div class="review-row"><dt>Kho hiện tại</dt><dd>${escapeHtml(warehouseName || "Để trống")}</dd></div>
         <div class="review-row"><dt>Task quá hạn</dt><dd>${state.taskLink ? `<a href="${escapeHtml(state.taskLink)}" target="_blank" rel="noreferrer">${escapeHtml(state.taskLink)}</a>` : "Để trống"}</dd></div>
